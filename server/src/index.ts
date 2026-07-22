@@ -7,10 +7,10 @@ import { mockExtract } from './mock.js';
 
 const app = express();
 
-const origins = (process.env.ALLOWED_ORIGIN ?? 'http://localhost:3000')
-  .split(',')
-  .map((s) => s.trim());
-app.use(cors({ origin: origins }));
+const originEnv = (process.env.ALLOWED_ORIGIN ?? 'http://localhost:3000').trim();
+// ALLOWED_ORIGIN=* 이면 모든 오리진 허용(초기 셋업용). 아니면 콤마 구분 목록만 허용.
+const corsOrigin = originEnv === '*' ? true : originEnv.split(',').map((s) => s.trim());
+app.use(cors({ origin: corsOrigin }));
 app.use(express.json({ limit: '50mb' })); // base64 이미지 수용
 
 app.get('/health', (_req, res) => {
