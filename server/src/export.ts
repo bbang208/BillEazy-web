@@ -72,6 +72,7 @@ export async function buildPersonalBuffer(p: PersonalClaim): Promise<Buffer> {
 
   ws.getCell('B5').value = p.dept || '';
   ws.getCell('C5').value = p.name || '';
+  ws.getCell('F5').value = p.name || ''; // 작성자 명 (원본 템플릿의 #VALUE! 오류 셀을 덮어씀)
   ws.getCell('E7').value = `지출 기간  ${p.period || ''}`;
 
   const CAP = 10; // 기본 데이터 행 10~19

@@ -141,7 +141,7 @@ export function ReviewScreen() {
               {/* 폼 우측 */}
               <div style={{ flex: 1, minWidth: 0, display: 'flex', flexDirection: 'column', gap: 12 }}>
                 <Field ai label="사용일자" value={sel.datetime} readOnly />
-                <Field ai label="사용내역" value={sel.items.join(', ')} readOnly />
+                <Field label="사용내역" value={sel.items.join(', ')} onChange={(v) => updateRow(sel.id, { items: v ? [v] : [] })} />
                 <Field ai label="거래처" value={sel.merchant} readOnly />
                 <div style={{ display: 'flex', gap: 12 }}>
                   <Field ai label="사업자등록번호" value={sel.biz_no} readOnly width="50%" />

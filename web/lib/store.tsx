@@ -217,7 +217,7 @@ export function StoreProvider({ children }: { children: React.ReactNode }) {
           note: r.note,
           amount: r.total,
           category: (r.category || '소모품비') as Category,
-          remark: r.remark || r.approval_no,
+          remark: r.remark, // 비고는 웹 입력값만 (비우면 빈칸)
         })),
         images: await rowsToImages(personalRows),
       });
