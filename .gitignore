@@ -1,0 +1,14 @@
+# deps
+node_modules/
+# env
+.env
+.env.local
+*.local
+# build
+dist/
+.next/
+out/
+# misc
+.DS_Store
+*.log
+npm-debug.log*

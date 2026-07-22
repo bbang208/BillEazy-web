@@ -1,0 +1,40 @@
+@import url('https://fonts.googleapis.com/css2?family=Noto+Sans+KR:wght@400;500;600;700&display=swap');
+
+:root {
+  /* 라이트 테마 토큰 (billeazy.pen 과 1:1) */
+  --bg: #F8F9FB;
+  --surface: #FFFFFF;
+  --surface-alt: #F1F3F5;
+  --border: #E9ECEF;
+  --border-strong: #DEE2E6;
+  --text: #212529;
+  --text-secondary: #868E96;
+  --text-tertiary: #ADB5BD;
+  --primary: #12B886;
+  --primary-hover: #0CA678;
+  --primary-tint: #E7F9F1;
+  --on-primary: #FFFFFF;
+  --accent: #FF922B;
+  --success: #12B886;
+  --success-bg: #E7F9F1;
+  --warning: #F59F00;
+  --warning-bg: #FFF9DB;
+  --danger: #FA5252;
+  --danger-bg: #FFF0F0;
+  --info: #4DABF7;
+  --info-bg: #E7F5FF;
+  --radius-input: 10px;
+  --radius-card: 16px;
+  --radius-modal: 20px;
+}
+
+* { box-sizing: border-box; }
+html, body { margin: 0; padding: 0; }
+body {
+  font-family: 'Noto Sans KR', -apple-system, 'Apple SD Gothic Neo', system-ui, sans-serif;
+  background: var(--bg);
+  color: var(--text);
+  -webkit-font-smoothing: antialiased;
+}
+button { font-family: inherit; cursor: pointer; }
+input, select, textarea { font-family: inherit; }
