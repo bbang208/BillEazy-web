@@ -15,11 +15,10 @@ const PROMPT = `이 이미지는 한국 카드매출전표(영수증)입니다. 
 - datetime: 거래일시 (YYYY-MM-DD 또는 ISO8601, 없으면 "")
 - total: 합계금액(부가세 포함) 숫자. supply_amount/vat 도 보이면 채우고 없으면 0.
 - items: 상품명 배열
-- routing_hint: 주유소/주차장 영수증이면 "fuel", 그 외 "personal_expense"
+- routing_hint: 항상 "personal_expense" (영수증은 모두 개인경비. 주유대는 사용자가 직접 추가하므로 여기서 판단하지 않음)
 - account_suggestion: 6개 계정과목 중 가장 적절한 것.
-    복리후생비=식대·음료 / 여비교통비=교통·톨 / 접대비=거래처 접대 /
+    복리후생비=식대·음료 / 여비교통비=교통·톨·주차·주유(법인차량 주유) / 접대비=거래처 접대 /
     통신비=우편·택배·화물 / 지급수수료=등기·행정·수수료 / 소모품비=소모품 구입.
-    routing_hint 가 fuel 이면 "".
 - confidence: 계정과목 확신도 0~1
 - matched_keywords: 판단 근거가 된 키워드
 - 읽을 수 없는 텍스트 필드는 "", 숫자는 0.`;

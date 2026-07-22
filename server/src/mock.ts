@@ -1,7 +1,7 @@
 import type { ReceiptExtraction } from './schema.js';
 
 // 크레딧 없이 UI 전체 플로우를 테스트하기 위한 샘플 영수증들.
-// 다양한 계정과목 + 주유대 라우팅 + 낮은 confidence(확인 필요) 케이스 포함. 라운드로빈으로 반환.
+// 다양한 계정과목(주유소→여비교통비 포함) + 낮은 confidence(확인 필요) 케이스 포함. 라운드로빈으로 반환.
 const SAMPLES: ReceiptExtraction[] = [
   {
     merchant: '지에이치스토어', biz_no: '354-40-00029', datetime: '2026-06-29T13:27:15',
@@ -25,11 +25,12 @@ const SAMPLES: ReceiptExtraction[] = [
     confidence: 0.9, matched_keywords: ['스타벅스', '커피'],
   },
   {
-    merchant: '하이파킹 역삼점', biz_no: '211-88-77123', datetime: '2026-06-15T18:03:00',
+    // 법인차량 주유 → 개인경비 여비교통비 (주유대 아님)
+    merchant: 'SK에너지 서초주유소', biz_no: '211-88-77123', datetime: '2026-06-18T18:03:00',
     card_type: '신한카드', card_no_masked: '****1234', approval_no: '55120983',
-    items: ['주차요금'], supply_amount: 0, vat: 0, total: 4000,
-    payment_method: 'card', routing_hint: 'fuel', account_suggestion: '',
-    confidence: 0.95, matched_keywords: ['주차'],
+    items: ['휘발유 30L'], supply_amount: 54545, vat: 5455, total: 60000,
+    payment_method: 'card', routing_hint: 'personal_expense', account_suggestion: '여비교통비',
+    confidence: 0.9, matched_keywords: ['주유', '에너지'],
   },
   {
     merchant: '우체국 강남지점', biz_no: '104-83-00021', datetime: '2026-06-05T11:22:41',

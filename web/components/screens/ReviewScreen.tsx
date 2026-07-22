@@ -28,7 +28,7 @@ function Thumb({ r, size }: { r: Row; size: number }) {
 export function ReviewScreen() {
   const {
     personal, fuel, subtotal, fuelTotal, categoryTotals, needsReview,
-    meta, setMeta, updateRow, removeRow, moveRow, addFiles, setStep,
+    meta, setMeta, updateRow, removeRow, moveRow, addFiles, addFuelEntry, setStep,
   } = useStore();
 
   const [tab, setTab] = useState<'personal' | 'fuel'>('personal');
@@ -66,7 +66,7 @@ export function ReviewScreen() {
         <div style={{ width: 340, flexShrink: 0, display: 'flex', flexDirection: 'column', gap: 8 }}>
           {list.length === 0 ? (
             <Card style={{ padding: 32, textAlign: 'center', color: 'var(--text-secondary)', fontSize: 14 }}>
-              이 유형 영수증이 없어요
+              {tab === 'personal' ? '영수증이 없어요' : '개인 자차로 출장 이동한 게 있으면 아래에서 추가하세요'}
             </Card>
           ) : (
             list.map((r) => {
@@ -113,9 +113,15 @@ export function ReviewScreen() {
             style={{ display: 'none' }}
             onChange={(e) => { addFiles(e.target.files); e.target.value = ''; }}
           />
-          <Button variant="ghost" full onClick={() => fileRef.current?.click()}>
-            <Plus size={16} /> 영수증 더 올리기
-          </Button>
+          {tab === 'personal' ? (
+            <Button variant="ghost" full onClick={() => fileRef.current?.click()}>
+              <Plus size={16} /> 영수증 더 올리기
+            </Button>
+          ) : (
+            <Button variant="ghost" full onClick={() => setSelId(addFuelEntry())}>
+              <Plus size={16} /> 주유대 항목 추가
+            </Button>
+          )}
         </div>
 
         {/* B 중앙 컬럼: 폼 */}
@@ -173,7 +179,7 @@ export function ReviewScreen() {
             </Card>
           ) : (
             <Card style={{ display: 'flex', flexDirection: 'column', gap: 12 }}>
-              <Field ai label="일자" value={sel.datetime} readOnly />
+              <Field label="일자" value={sel.datetime} onChange={(v) => updateRow(sel.id, { datetime: v })} placeholder="예: 2026-06-15" />
               <Field required label="목적" value={sel.purpose} onChange={(v) => updateRow(sel.id, { purpose: v })} placeholder="예: 미팅" />
               <Field required label="목적지" value={sel.destination} onChange={(v) => updateRow(sel.id, { destination: v })} placeholder="예: 판교 고객사" />
               <Field

@@ -83,7 +83,7 @@ export function UploadScreen() {
 
       <div style={{ marginTop: 20, textAlign: 'left', display: 'flex', flexDirection: 'column', gap: 12 }}>
         <Callout tone="info" icon="ℹ️">
-          카드전표는 개인경비로, 주차·주유 영수증은 주유대 청구로 자동 분류돼요.
+          영수증은 자동으로 개인경비로 정리돼요 (주유·주차·톨은 여비교통비). 주유대(개인 자차로 출장 이동)는 검토 화면에서 직접 추가하세요.
         </Callout>
         <Callout tone="warning" icon="⚠️">
           · 식대는 인당 8,000원 기준이에요&nbsp;&nbsp;&nbsp;· 현금 3만원 초과 지출은 현금영수증 또는 카드로 결제해주세요.

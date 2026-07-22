@@ -80,6 +80,20 @@ function newRow(file: File): Row {
   };
 }
 
+// 사용자가 직접 추가하는 빈 주유대(개인 자차 출장) 항목.
+function blankFuelRow(): Row {
+  return {
+    ...EMPTY_EXTRACTION,
+    id: crypto.randomUUID(),
+    fileName: '',
+    status: 'done',
+    routing_hint: 'fuel',
+    note: '', category: '', remark: '',
+    purpose: '', destination: '', distanceKm: null, toll: 0, parking: 0, etc: 0,
+    confirmed: false,
+  };
+}
+
 // 영수증 미리보기(blob URL) → base64. 별지 첨부용.
 async function rowsToImages(rows: Row[]): Promise<{ name: string; base64: string; mediaType: string }[]> {
   const out: { name: string; base64: string; mediaType: string }[] = [];
@@ -119,6 +133,7 @@ export interface StoreValue {
   updateRow: (id: string, patch: Partial<Row>) => void;
   removeRow: (id: string) => void;
   moveRow: (id: string, to: 'personal' | 'fuel') => void;
+  addFuelEntry: () => string; // 주유대(자차 출장) 항목 직접 추가 → 새 행 id 반환
   setMeta: (patch: Partial<Meta>) => void;
   reset: () => void;
   download: () => Promise<void>;
@@ -164,6 +179,11 @@ export function StoreProvider({ children }: { children: React.ReactNode }) {
   const setStep = useCallback((s: Step) => dispatch({ type: 'step', step: s }), []);
   const reset = useCallback(() => dispatch({ type: 'reset' }), []);
   const moveRow = useCallback((id: string, to: 'personal' | 'fuel') => dispatch({ type: 'moveRow', id, to }), []);
+  const addFuelEntry = useCallback(() => {
+    const row = blankFuelRow();
+    dispatch({ type: 'addRows', rows: [row] });
+    return row.id;
+  }, []);
 
   const derived = useMemo(() => {
     const rows = state.rows;
@@ -227,7 +247,7 @@ export function StoreProvider({ children }: { children: React.ReactNode }) {
     rows: state.rows,
     meta: state.meta,
     ...derived,
-    setStep, addFiles, updateRow, removeRow, moveRow, setMeta, reset, download,
+    setStep, addFiles, updateRow, removeRow, moveRow, addFuelEntry, setMeta, reset, download,
   };
 
   return <Ctx.Provider value={value}>{children}</Ctx.Provider>;
