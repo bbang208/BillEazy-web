@@ -2,15 +2,22 @@
 
 import React, { createContext, useCallback, useContext, useMemo, useReducer } from 'react';
 import {
-  CATEGORIES, Category, Meta, ReceiptExtraction, Row, Step,
-  confidenceBand, fuelSubtotal,
+  Bucket, CATEGORIES, Category, Meta, ReceiptExtraction, Row, Step,
+  bucketOf, confidenceBand, fuelSubtotal,
 } from './types';
 import { extractReceipt, exportDoc } from './api';
+
+// 직전 수동 이동 스냅샷 (되돌리기용)
+interface MoveUndo {
+  to: Bucket;
+  rows: Row[]; // 이동 직전 상태 그대로
+}
 
 interface State {
   step: Step;
   rows: Row[];
   meta: Meta;
+  undo: MoveUndo | null;
 }
 
 type Action =
@@ -18,7 +25,9 @@ type Action =
   | { type: 'addRows'; rows: Row[] }
   | { type: 'updateRow'; id: string; patch: Partial<Row> }
   | { type: 'removeRow'; id: string }
-  | { type: 'moveRow'; id: string; to: 'personal' | 'fuel' }
+  | { type: 'moveRows'; ids: string[]; to: Bucket }
+  | { type: 'undoMove' }
+  | { type: 'dismissUndo' }
   | { type: 'setMeta'; patch: Partial<Meta> }
   | { type: 'reset' };
 
@@ -26,32 +35,74 @@ const initial: State = {
   step: 'upload',
   rows: [],
   meta: { dept: '연구소', name: '', period: '' },
+  undo: null,
 };
+
+/**
+ * 항목을 다른 문서(탭)로 옮긴다.
+ * - 개인경비 → 주유대: 인식 금액을 주차료 칸에 이월(비어 있을 때만). 자동으로 채웠다는 표시를 남겨 되돌릴 수 있게 한다.
+ * - 주유대 → 개인경비: 자동으로 채운 주차료는 다시 비우고, 계정과목이 비어 있으면 AI 추천값을 복구한다.
+ */
+function moveOne(r: Row, to: Bucket): Row {
+  if (bucketOf(r) === to) return r;
+  if (to === 'fuel') {
+    const fill = !r.parking && r.total > 0;
+    return {
+      ...r,
+      routing_hint: 'fuel',
+      routedBy: 'user',
+      parking: fill ? r.total : r.parking,
+      parkingAuto: fill ? true : r.parkingAuto,
+    };
+  }
+  return {
+    ...r,
+    routing_hint: 'personal_expense',
+    routedBy: 'user',
+    parking: r.parkingAuto ? 0 : r.parking,
+    parkingAuto: false,
+    category: r.category || r.account_suggestion,
+  };
+}
 
 function reducer(state: State, a: Action): State {
   switch (a.type) {
     case 'step':
-      return { ...state, step: a.step };
+      return { ...state, step: a.step, undo: null };
     case 'addRows':
-      return { ...state, rows: [...state.rows, ...a.rows] };
+      return { ...state, rows: [...state.rows, ...a.rows], undo: null };
     case 'updateRow':
-      return { ...state, rows: state.rows.map((r) => (r.id === a.id ? { ...r, ...a.patch } : r)) };
-    case 'removeRow':
-      return { ...state, rows: state.rows.filter((r) => r.id !== a.id) };
-    case 'moveRow':
       return {
         ...state,
-        rows: state.rows.map((r) =>
-          r.id === a.id
-            ? {
-                ...r,
-                routing_hint: a.to === 'fuel' ? 'fuel' : 'personal_expense',
-                // 주유대로 옮길 때 인식 금액을 주차료로 이월(비어있을 때만)
-                parking: a.to === 'fuel' && !r.parking ? r.total : r.parking,
-              }
-            : r,
-        ),
+        rows: state.rows.map((r) => (r.id === a.id ? { ...r, ...a.patch } : r)),
+        // 편집한 항목이 되돌리기 대상이면 스냅샷을 버린다(편집분이 사라지는 걸 막기 위함).
+        undo: state.undo?.rows.some((r) => r.id === a.id) ? null : state.undo,
       };
+    case 'removeRow':
+      return {
+        ...state,
+        rows: state.rows.filter((r) => r.id !== a.id),
+        undo: state.undo?.rows.some((r) => r.id === a.id) ? null : state.undo,
+      };
+    case 'moveRows': {
+      const ids = new Set(a.ids);
+      // 실제로 바뀌는 항목만 대상으로 삼는다(이미 그 탭이면 무시).
+      const targets = state.rows.filter((r) => ids.has(r.id) && bucketOf(r) !== a.to);
+      if (!targets.length) return state;
+      const targetIds = new Set(targets.map((r) => r.id));
+      return {
+        ...state,
+        rows: state.rows.map((r) => (targetIds.has(r.id) ? moveOne(r, a.to) : r)),
+        undo: { to: a.to, rows: targets },
+      };
+    }
+    case 'undoMove': {
+      if (!state.undo) return state;
+      const snap = new Map(state.undo.rows.map((r) => [r.id, r]));
+      return { ...state, rows: state.rows.map((r) => snap.get(r.id) ?? r), undo: null };
+    }
+    case 'dismissUndo':
+      return { ...state, undo: null };
     case 'setMeta':
       return { ...state, meta: { ...state.meta, ...a.patch } };
     case 'reset':
@@ -77,6 +128,7 @@ function newRow(file: File): Row {
     note: '', category: '', remark: '',
     purpose: '', destination: '', distanceKm: null, toll: 0, parking: 0, etc: 0,
     confirmed: false,
+    routedBy: 'ai', parkingAuto: false,
   };
 }
 
@@ -91,6 +143,7 @@ function blankFuelRow(): Row {
     note: '', category: '', remark: '',
     purpose: '', destination: '', distanceKm: null, toll: 0, parking: 0, etc: 0,
     confirmed: false,
+    routedBy: 'user', parkingAuto: false,
   };
 }
 
@@ -127,12 +180,17 @@ export interface StoreValue {
   categoryTotals: { category: Category; sum: number }[];
   needsReview: number;
   isProcessing: boolean;
+  movedCount: number; // 사용자가 수동으로 분류를 바꾼 영수증 수
+  undo: { to: Bucket; count: number; rows: Row[] } | null;
   // actions
   setStep: (s: Step) => void;
   addFiles: (files: FileList | File[] | null) => Promise<void>;
   updateRow: (id: string, patch: Partial<Row>) => void;
   removeRow: (id: string) => void;
-  moveRow: (id: string, to: 'personal' | 'fuel') => void;
+  moveRow: (id: string, to: Bucket) => void;
+  moveRows: (ids: string[], to: Bucket) => void;
+  undoMove: () => void;
+  dismissUndo: () => void;
   addFuelEntry: () => string; // 주유대(자차 출장) 항목 직접 추가 → 새 행 id 반환
   setMeta: (patch: Partial<Meta>) => void;
   reset: () => void;
@@ -178,7 +236,10 @@ export function StoreProvider({ children }: { children: React.ReactNode }) {
   const setMeta = useCallback((patch: Partial<Meta>) => dispatch({ type: 'setMeta', patch }), []);
   const setStep = useCallback((s: Step) => dispatch({ type: 'step', step: s }), []);
   const reset = useCallback(() => dispatch({ type: 'reset' }), []);
-  const moveRow = useCallback((id: string, to: 'personal' | 'fuel') => dispatch({ type: 'moveRow', id, to }), []);
+  const moveRow = useCallback((id: string, to: Bucket) => dispatch({ type: 'moveRows', ids: [id], to }), []);
+  const moveRows = useCallback((ids: string[], to: Bucket) => dispatch({ type: 'moveRows', ids, to }), []);
+  const undoMove = useCallback(() => dispatch({ type: 'undoMove' }), []);
+  const dismissUndo = useCallback(() => dispatch({ type: 'dismissUndo' }), []);
   const addFuelEntry = useCallback(() => {
     const row = blankFuelRow();
     dispatch({ type: 'addRows', rows: [row] });
@@ -199,7 +260,8 @@ export function StoreProvider({ children }: { children: React.ReactNode }) {
       personal.filter((r) => r.status === 'done' && (!r.category || confidenceBand(r.confidence) !== 'high' || !r.note.trim())).length +
       fuel.filter((r) => r.status === 'done' && (!r.purpose.trim() || !r.destination.trim() || !r.distanceKm)).length;
     const isProcessing = rows.some((r) => r.status === 'processing');
-    return { personal, fuel, subtotal, fuelTotal, categoryTotals, needsReview, isProcessing };
+    const movedCount = rows.filter((r) => r.routedBy === 'user' && !!r.fileName).length;
+    return { personal, fuel, subtotal, fuelTotal, categoryTotals, needsReview, isProcessing, movedCount };
   }, [state.rows]);
 
   const download = useCallback(async () => {
@@ -247,7 +309,9 @@ export function StoreProvider({ children }: { children: React.ReactNode }) {
     rows: state.rows,
     meta: state.meta,
     ...derived,
-    setStep, addFiles, updateRow, removeRow, moveRow, addFuelEntry, setMeta, reset, download,
+    undo: state.undo ? { to: state.undo.to, count: state.undo.rows.length, rows: state.undo.rows } : null,
+    setStep, addFiles, updateRow, removeRow, moveRow, moveRows, undoMove, dismissUndo,
+    addFuelEntry, setMeta, reset, download,
   };
 
   return <Ctx.Provider value={value}>{children}</Ctx.Provider>;

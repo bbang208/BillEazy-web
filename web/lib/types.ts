@@ -25,6 +25,13 @@ export const FUEL_RATE_PER_KM = 310;
 export type Step = 'upload' | 'processing' | 'review' | 'preview' | 'done';
 export type RoutingHint = 'personal_expense' | 'fuel';
 
+// 항목이 들어가는 문서(탭). routing_hint 의 UI 표현.
+export type Bucket = 'personal' | 'fuel';
+export const BUCKETS: Bucket[] = ['personal', 'fuel'];
+export const BUCKET_LABEL: Record<Bucket, string> = { personal: '개인경비', fuel: '주유대' };
+export const BUCKET_COLOR: Record<Bucket, string> = { personal: '#868E96', fuel: '#4DABF7' };
+export const otherBucket = (b: Bucket): Bucket => (b === 'personal' ? 'fuel' : 'personal');
+
 export interface ReceiptExtraction {
   merchant: string;
   biz_no: string;
@@ -62,7 +69,13 @@ export interface Row extends ReceiptExtraction {
   parking: number;
   etc: number;
   confirmed: boolean;
+  // 분류(개인경비/주유대)를 누가 정했는지. 'user' = 사용자가 수동으로 바꾼 항목.
+  routedBy: 'ai' | 'user';
+  // 주유대로 옮기면서 인식 금액을 주차료에 자동으로 채웠는지 (되돌릴 때 다시 비우기 위함)
+  parkingAuto: boolean;
 }
+
+export const bucketOf = (r: Row): Bucket => (r.routing_hint === 'fuel' ? 'fuel' : 'personal');
 
 export interface Meta {
   dept: string;

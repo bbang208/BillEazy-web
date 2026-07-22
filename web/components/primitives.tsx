@@ -2,7 +2,7 @@
 
 import React from 'react';
 import { CAT_COLOR, CATEGORIES, CATEGORY_DESC, Category, CONF_COLOR, CONF_LABEL, confidenceBand } from '@/lib/types';
-import { AlertTriangle, Check, Info } from './icons';
+import { AlertTriangle, Check, Info, RotateCcw, X } from './icons';
 
 type Variant = 'primary' | 'secondary' | 'ghost' | 'danger';
 
@@ -154,12 +154,14 @@ export function CategorySelect({ value, onChange }: { value: Category | ''; onCh
 }
 
 export function Segmented<T extends string>({
-  options, value, onChange,
+  options, value, onChange, size = 'md', full,
 }: {
-  options: { label: string; value: T; count?: number }[]; value: T; onChange: (v: T) => void;
+  options: { label: string; value: T; count?: number; icon?: React.ReactNode }[];
+  value: T; onChange: (v: T) => void; size?: 'sm' | 'md'; full?: boolean;
 }) {
+  const sm = size === 'sm';
   return (
-    <div style={{ display: 'inline-flex', gap: 4, background: 'var(--surface-alt)', borderRadius: 10, padding: 4 }}>
+    <div style={{ display: full ? 'flex' : 'inline-flex', gap: 4, background: 'var(--surface-alt)', borderRadius: 10, padding: 4 }}>
       {options.map((o) => {
         const active = o.value === value;
         return (
@@ -167,11 +169,14 @@ export function Segmented<T extends string>({
             key={o.value}
             onClick={() => onChange(o.value)}
             style={{
-              border: 'none', borderRadius: 7, padding: '7px 14px', fontSize: 14, fontWeight: 600, cursor: 'pointer',
+              border: 'none', borderRadius: 7, padding: sm ? '6px 12px' : '7px 14px', fontSize: sm ? 13 : 14,
+              fontWeight: 600, cursor: 'pointer', flex: full ? 1 : undefined,
               background: active ? 'var(--primary)' : 'transparent', color: active ? 'var(--on-primary)' : 'var(--text-secondary)',
-              display: 'inline-flex', alignItems: 'center', gap: 6,
+              display: 'inline-flex', alignItems: 'center', justifyContent: 'center', gap: 6,
+              transition: 'background .12s, color .12s',
             }}
           >
+            {o.icon}
             {o.label}
             {o.count != null && (
               <span style={{ fontSize: 12, borderRadius: 999, padding: '0 7px', background: active ? '#ffffff33' : 'var(--border)', color: active ? '#fff' : 'var(--text-secondary)' }}>
@@ -187,6 +192,91 @@ export function Segmented<T extends string>({
 
 export function Divider() {
   return <div style={{ height: 1, background: 'var(--border)' }} />;
+}
+
+/** 카드 안에 겹쳐 놓는 작은 버튼. 부모 카드의 클릭(선택)과 겹치지 않게 이벤트를 멈춘다. */
+export function ChipButton({
+  children, onClick, title, tone = 'default',
+}: {
+  children: React.ReactNode; onClick: () => void; title?: string; tone?: 'default' | 'primary';
+}) {
+  const primary = tone === 'primary';
+  return (
+    <button
+      title={title}
+      onClick={(e) => { e.stopPropagation(); onClick(); }}
+      style={{
+        display: 'inline-flex', alignItems: 'center', gap: 4, whiteSpace: 'nowrap',
+        border: `1px solid ${primary ? 'var(--primary)' : 'var(--border-strong)'}`,
+        background: primary ? 'var(--primary-tint)' : 'var(--surface)',
+        color: primary ? 'var(--primary)' : 'var(--text-secondary)',
+        borderRadius: 999, padding: '4px 10px', fontSize: 12, fontWeight: 600, cursor: 'pointer',
+      }}
+    >
+      {children}
+    </button>
+  );
+}
+
+export function Checkbox({ checked, onChange, label }: { checked: boolean; onChange: (v: boolean) => void; label?: string }) {
+  return (
+    <span
+      role="checkbox"
+      aria-checked={checked}
+      aria-label={label}
+      onClick={(e) => { e.stopPropagation(); onChange(!checked); }}
+      style={{
+        width: 18, height: 18, borderRadius: 5, flexShrink: 0, cursor: 'pointer',
+        border: `1.5px solid ${checked ? 'var(--primary)' : 'var(--border-strong)'}`,
+        background: checked ? 'var(--primary)' : 'var(--surface)',
+        display: 'inline-flex', alignItems: 'center', justifyContent: 'center', color: '#fff',
+      }}
+    >
+      {checked && <Check size={12} />}
+    </span>
+  );
+}
+
+/** 화면 하단 중앙 토스트 (되돌리기 안내용) */
+export function Toast({
+  children, actionLabel, onAction, onClose,
+}: {
+  children: React.ReactNode; actionLabel?: string; onAction?: () => void; onClose?: () => void;
+}) {
+  return (
+    <div
+      style={{
+        // 중앙 카드의 버튼을 가리지 않도록 좌측 하단에 띄운다.
+        position: 'fixed', left: 24, bottom: 24, zIndex: 50,
+        display: 'flex', alignItems: 'center', gap: 14,
+        background: 'var(--text)', color: '#fff', borderRadius: 12, padding: '12px 14px 12px 18px',
+        boxShadow: '0 12px 32px #0000002e', fontSize: 14, maxWidth: 'calc(100vw - 32px)',
+      }}
+    >
+      <span>{children}</span>
+      {actionLabel && (
+        <button
+          onClick={onAction}
+          style={{
+            border: 'none', background: '#ffffff1f', color: '#fff', borderRadius: 8,
+            padding: '6px 12px', fontSize: 13, fontWeight: 700, cursor: 'pointer',
+            display: 'inline-flex', alignItems: 'center', gap: 5,
+          }}
+        >
+          <RotateCcw size={14} /> {actionLabel}
+        </button>
+      )}
+      {onClose && (
+        <button
+          onClick={onClose}
+          aria-label="닫기"
+          style={{ border: 'none', background: 'transparent', color: '#ffffffa8', cursor: 'pointer', display: 'flex', padding: 2 }}
+        >
+          <X size={16} />
+        </button>
+      )}
+    </div>
+  );
 }
 
 export function Dot({ color }: { color: string }) {

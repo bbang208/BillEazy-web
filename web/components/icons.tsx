@@ -87,6 +87,46 @@ export const Plus = (p: IconProps) => (
   </Svg>
 );
 
+export const ArrowLeftRight = (p: IconProps) => (
+  <Svg {...p}>
+    <path d="M8 3 4 7l4 4" />
+    <path d="M4 7h16" />
+    <path d="m16 21 4-4-4-4" />
+    <path d="M20 17H4" />
+  </Svg>
+);
+
+export const RotateCcw = (p: IconProps) => (
+  <Svg {...p}>
+    <path d="M3 12a9 9 0 1 0 3-6.7L3 8" />
+    <path d="M3 3v5h5" />
+  </Svg>
+);
+
+export const X = (p: IconProps) => (
+  <Svg {...p}>
+    <path d="M18 6 6 18" />
+    <path d="m6 6 12 12" />
+  </Svg>
+);
+
+export const Wallet = (p: IconProps) => (
+  <Svg {...p}>
+    <path d="M19 7V5a2 2 0 0 0-2-2H5a2 2 0 0 0 0 4h14a2 2 0 0 1 2 2v8a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V5" />
+    <path d="M16 12h.01" />
+  </Svg>
+);
+
+export const Fuel = (p: IconProps) => (
+  <Svg {...p}>
+    <path d="M3 22V4a2 2 0 0 1 2-2h6a2 2 0 0 1 2 2v18" />
+    <path d="M2 22h12" />
+    <path d="M5 8h6" />
+    <path d="M17 9v7a2 2 0 0 0 4 0V9l-3-3" />
+    <path d="M17 12h4" />
+  </Svg>
+);
+
 export const HelpCircle = (p: IconProps) => (
   <Svg {...p}>
     <circle cx="12" cy="12" r="10" />
