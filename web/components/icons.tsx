@@ -87,6 +87,23 @@ export const Plus = (p: IconProps) => (
   </Svg>
 );
 
+export const FileText = (p: IconProps) => (
+  <Svg {...p}>
+    <path d="M15 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V7Z" />
+    <path d="M14 2v5h6" />
+    <path d="M9 13h6" />
+    <path d="M9 17h6" />
+  </Svg>
+);
+
+export const ExternalLink = (p: IconProps) => (
+  <Svg {...p}>
+    <path d="M15 3h6v6" />
+    <path d="M10 14 21 3" />
+    <path d="M18 13v6a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V8a2 2 0 0 1 2-2h6" />
+  </Svg>
+);
+
 export const ArrowLeftRight = (p: IconProps) => (
   <Svg {...p}>
     <path d="M8 3 4 7l4 4" />

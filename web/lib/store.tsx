@@ -3,9 +3,10 @@
 import React, { createContext, useCallback, useContext, useMemo, useReducer } from 'react';
 import {
   Bucket, CATEGORIES, Category, Meta, ReceiptExtraction, Row, Step,
-  bucketOf, confidenceBand, fuelSubtotal,
+  bucketOf, confidenceBand, fuelSubtotal, rejectReason,
 } from './types';
 import { extractReceipt, exportDoc } from './api';
+import { isPdf, renderPdfFirstPage } from './pdf';
 
 // 직전 수동 이동 스냅샷 (되돌리기용)
 interface MoveUndo {
@@ -119,11 +120,17 @@ const EMPTY_EXTRACTION: ReceiptExtraction = {
 };
 
 function newRow(file: File): Row {
+  const pdf = isPdf(file);
+  const url = URL.createObjectURL(file);
   return {
     ...EMPTY_EXTRACTION,
     id: crypto.randomUUID(),
     fileName: file.name,
-    previewUrl: URL.createObjectURL(file),
+    // PDF 는 <img> 로 못 그리므로 첫 페이지 렌더링이 끝난 뒤에 previewUrl 을 채운다.
+    previewUrl: pdf ? undefined : url,
+    fileUrl: url,
+    fileType: pdf ? 'application/pdf' : file.type || 'image/jpeg',
+    pageCount: 0,
     status: 'processing',
     note: '', category: '', remark: '',
     purpose: '', destination: '', distanceKm: null, toll: 0, parking: 0, etc: 0,
@@ -138,6 +145,8 @@ function blankFuelRow(): Row {
     ...EMPTY_EXTRACTION,
     id: crypto.randomUUID(),
     fileName: '',
+    fileType: '',
+    pageCount: 0,
     status: 'done',
     routing_hint: 'fuel',
     note: '', category: '', remark: '',
@@ -175,6 +184,7 @@ export interface StoreValue {
   // derived
   personal: Row[];
   fuel: Row[];
+  failed: Row[]; // 형식 미지원·인식 실패로 청구에서 빠진 파일
   subtotal: number;
   fuelTotal: number;
   categoryTotals: { category: Category; sum: number }[];
@@ -210,8 +220,24 @@ export function StoreProvider({ children }: { children: React.ReactNode }) {
     dispatch({ type: 'addRows', rows: pending });
     await Promise.all(
       pending.map(async (row, i) => {
+        const file = files[i];
+        // 지원하지 않는 형식·크기는 API 호출 전에 걸러 이유를 그대로 보여준다.
+        const reject = rejectReason(file);
+        if (reject) {
+          dispatch({ type: 'updateRow', id: row.id, patch: { status: 'error', errorMsg: reject } });
+          return;
+        }
+        // PDF 는 첫 페이지를 PNG 로 렌더링해 미리보기·엑셀 별지에 쓴다. 실패해도 인식은 계속.
+        if (isPdf(file)) {
+          try {
+            const { dataUrl, pageCount } = await renderPdfFirstPage(file);
+            dispatch({ type: 'updateRow', id: row.id, patch: { previewUrl: dataUrl, pageCount } });
+          } catch {
+            /* 렌더 실패 시 미리보기만 없음 */
+          }
+        }
         try {
-          const ex = await extractReceipt(files[i]);
+          const ex = await extractReceipt(file);
           dispatch({
             type: 'updateRow',
             id: row.id,
@@ -248,8 +274,11 @@ export function StoreProvider({ children }: { children: React.ReactNode }) {
 
   const derived = useMemo(() => {
     const rows = state.rows;
-    const personal = rows.filter((r) => r.routing_hint !== 'fuel');
-    const fuel = rows.filter((r) => r.routing_hint === 'fuel');
+    // 읽지 못한 파일은 청구 목록에서 빼고 따로 안내한다(빈 항목이 섞이는 걸 방지).
+    const failed = rows.filter((r) => r.status === 'error');
+    const usable = rows.filter((r) => r.status !== 'error');
+    const personal = usable.filter((r) => r.routing_hint !== 'fuel');
+    const fuel = usable.filter((r) => r.routing_hint === 'fuel');
     const subtotal = personal.reduce((s, r) => s + (r.total || 0), 0);
     const fuelTotal = fuel.reduce((s, r) => s + fuelSubtotal(r), 0);
     const categoryTotals = CATEGORIES.map((category) => ({
@@ -261,7 +290,7 @@ export function StoreProvider({ children }: { children: React.ReactNode }) {
       fuel.filter((r) => r.status === 'done' && (!r.purpose.trim() || !r.destination.trim() || !r.distanceKm)).length;
     const isProcessing = rows.some((r) => r.status === 'processing');
     const movedCount = rows.filter((r) => r.routedBy === 'user' && !!r.fileName).length;
-    return { personal, fuel, subtotal, fuelTotal, categoryTotals, needsReview, isProcessing, movedCount };
+    return { personal, fuel, failed, subtotal, fuelTotal, categoryTotals, needsReview, isProcessing, movedCount };
   }, [state.rows]);
 
   const download = useCallback(async () => {

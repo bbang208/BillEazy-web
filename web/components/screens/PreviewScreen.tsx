@@ -2,9 +2,9 @@
 
 import React, { useState } from 'react';
 import { useStore } from '@/lib/store';
-import { won, fuelAmount, fuelSubtotal, Row } from '@/lib/types';
+import { won, fuelAmount, fuelSubtotal, isPdfRow, Row } from '@/lib/types';
 import { Button, Callout, Segmented, CatBadge } from '@/components/primitives';
-import { Download } from '@/components/icons';
+import { Download, FileText } from '@/components/icons';
 
 type Doc = 'personal' | 'fuel' | 'attach';
 
@@ -38,6 +38,10 @@ function ReceiptBox({ r, height }: { r: Row; height: number }) {
     >
       {r.previewUrl ? (
         <img src={r.previewUrl} style={{ width: '100%', height: '100%', objectFit: 'cover' }} />
+      ) : isPdfRow(r) ? (
+        <span style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', gap: 6, fontSize: 13, color: 'var(--text-tertiary)' }}>
+          <FileText size={32} /> PDF (미리보기 없음)
+        </span>
       ) : (
         <span>🧾</span>
       )}

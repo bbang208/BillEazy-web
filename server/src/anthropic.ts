@@ -8,8 +8,21 @@ const client = new Anthropic();
 const MODEL = 'claude-sonnet-5';
 
 export type ImageMediaType = 'image/jpeg' | 'image/png' | 'image/webp' | 'image/gif';
+export const PDF_MEDIA_TYPE = 'application/pdf';
+export type InputMediaType = ImageMediaType | typeof PDF_MEDIA_TYPE;
 
-const PROMPT = `이 이미지는 한국 카드매출전표(영수증)입니다. 필드를 정확히 읽어 JSON 스키마에 맞춰 답하세요.
+const IMAGE_TYPES: ImageMediaType[] = ['image/jpeg', 'image/png', 'image/webp', 'image/gif'];
+
+export function normalizeMediaType(mt: string | undefined): InputMediaType | null {
+  const t = (mt || '').toLowerCase().split(';')[0].trim();
+  if (t === PDF_MEDIA_TYPE) return PDF_MEDIA_TYPE;
+  if (t === 'image/jpg') return 'image/jpeg';
+  return (IMAGE_TYPES as string[]).includes(t) ? (t as ImageMediaType) : null;
+}
+
+const PROMPT = `이 파일은 한국 카드매출전표(영수증)입니다. 이미지 또는 PDF(전자세금계산서·이메일 영수증 등)로 들어옵니다.
+PDF 라면 페이지에 적힌 텍스트를 그대로 읽으세요. 여러 페이지면 첫 번째 영수증 한 건만 추출합니다.
+필드를 정확히 읽어 JSON 스키마에 맞춰 답하세요.
 - merchant: 가맹점/판매자 상호
 - biz_no: 사업자등록번호(없으면 "")
 - datetime: 거래일시 (YYYY-MM-DD 또는 ISO8601, 없으면 "")
@@ -24,13 +37,19 @@ const PROMPT = `이 이미지는 한국 카드매출전표(영수증)입니다. 
 - 읽을 수 없는 텍스트 필드는 "", 숫자는 0.`;
 
 /**
- * 영수증 이미지(base64) → 구조화 추출 + 계정과목 룰 보정.
+ * 영수증 이미지 또는 PDF(base64) → 구조화 추출 + 계정과목 룰 보정.
+ * PDF 는 image 블록이 아니라 document 블록으로 보내야 한다(베타 헤더 불필요).
  * API 키는 이 서버에서만 사용된다.
  */
 export async function extractReceipt(
   base64: string,
-  mediaType: ImageMediaType = 'image/jpeg',
+  mediaType: InputMediaType = 'image/jpeg',
 ): Promise<ReceiptExtraction> {
+  const fileBlock =
+    mediaType === PDF_MEDIA_TYPE
+      ? { type: 'document' as const, source: { type: 'base64' as const, media_type: PDF_MEDIA_TYPE, data: base64 } }
+      : { type: 'image' as const, source: { type: 'base64' as const, media_type: mediaType, data: base64 } };
+
   const resp = await client.messages.create({
     model: MODEL,
     max_tokens: 1024,
@@ -43,10 +62,7 @@ export async function extractReceipt(
     messages: [
       {
         role: 'user',
-        content: [
-          { type: 'image', source: { type: 'base64', media_type: mediaType, data: base64 } },
-          { type: 'text', text: PROMPT },
-        ],
+        content: [fileBlock, { type: 'text', text: PROMPT }],
       },
     ],
     // output_config / thinking 필드는 SDK 버전에 따라 타입이 없을 수 있어 캐스팅.

@@ -2,15 +2,17 @@
 
 import React from 'react';
 import { useStore } from '@/lib/store';
-import { won, Row } from '@/lib/types';
+import { won, Row, isPdfRow } from '@/lib/types';
 import { Button, Card } from '@/components/primitives';
-import { AlertTriangle, Check } from '@/components/icons';
+import { AlertTriangle, Check, FileText } from '@/components/icons';
 
 export function ProcessingScreen() {
   const { rows, setStep, reset } = useStore();
   const total = rows.length;
   const done = rows.filter((r) => r.status === 'done').length;
-  const pct = total ? (done / total) * 100 : 0;
+  // 실패도 '처리 끝'이므로 진행률에 포함(막대가 멈춘 것처럼 보이지 않게)
+  const settled = rows.filter((r) => r.status !== 'processing').length;
+  const pct = total ? (settled / total) * 100 : 0;
 
   return (
     <div style={{ padding: 32, display: 'flex', flexDirection: 'column', gap: 24 }}>
@@ -70,6 +72,11 @@ function Thumb({ r }: { r: Row }) {
     >
       {r.previewUrl ? (
         <img src={r.previewUrl} style={{ width: '100%', height: '100%', objectFit: 'cover' }} />
+      ) : isPdfRow(r) ? (
+        // PDF 첫 페이지를 렌더링하는 동안(또는 렌더 실패 시) 표시
+        <span style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', gap: 6, fontSize: 12 }}>
+          <FileText size={26} /> PDF
+        </span>
       ) : (
         '🧾'
       )}
@@ -81,7 +88,9 @@ function FileCard({ r }: { r: Row }) {
   if (r.status === 'error') {
     return (
       <Card style={{ background: 'var(--danger-bg)', display: 'flex', flexDirection: 'column', gap: 8 }}>
-        <div style={{ fontSize: 14, fontWeight: 600, color: 'var(--text)', display: 'flex', alignItems: 'center', gap: 6 }}><AlertTriangle size={16} color="var(--danger)" /> 글씨가 흐려서 못 읽었어요</div>
+        <div style={{ fontSize: 14, fontWeight: 600, color: 'var(--text)', display: 'flex', alignItems: 'center', gap: 6 }}>
+          <AlertTriangle size={16} color="var(--danger)" /> {r.errorMsg ? '이 파일은 못 읽었어요' : '글씨가 흐려서 못 읽었어요'}
+        </div>
         {r.errorMsg && <div style={{ fontSize: 12, color: 'var(--text-secondary)' }}>{r.errorMsg}</div>}
         <div style={{ fontSize: 12, color: 'var(--text-tertiary)', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
           {r.fileName}

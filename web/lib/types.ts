@@ -22,6 +22,26 @@ export const CAT_COLOR: Record<Category, string> = {
 
 export const FUEL_RATE_PER_KM = 310;
 
+// 업로드 허용 형식 — Claude 가 직접 읽을 수 있는 것만. (HEIC 등은 변환 필요)
+export const ACCEPTED_MIME = ['image/jpeg', 'image/jpg', 'image/png', 'image/webp', 'image/gif', 'application/pdf'];
+export const ACCEPT_ATTR = 'image/jpeg,image/png,image/webp,image/gif,application/pdf,.pdf';
+export const ACCEPT_LABEL = 'JPG · PNG · WEBP · PDF';
+export const MAX_FILE_BYTES = 24 * 1024 * 1024; // Claude 요청 32MB 제한(base64 팽창분 감안)
+
+/** 업로드할 수 없는 파일이면 사용자에게 보여줄 이유, 괜찮으면 null. */
+export function rejectReason(file: File): string | null {
+  const type = (file.type || '').toLowerCase();
+  const isPdfName = /\.pdf$/i.test(file.name);
+  if (!ACCEPTED_MIME.includes(type) && !isPdfName) {
+    const ext = file.name.split('.').pop()?.toUpperCase() || '알 수 없는 형식';
+    return `${ext} 는 지원하지 않아요. ${ACCEPT_LABEL} 로 올려주세요.`;
+  }
+  if (file.size > MAX_FILE_BYTES) {
+    return `파일이 너무 커요(${Math.round(file.size / 1024 / 1024)}MB). 24MB 이하로 올려주세요.`;
+  }
+  return null;
+}
+
 export type Step = 'upload' | 'processing' | 'review' | 'preview' | 'done';
 export type RoutingHint = 'personal_expense' | 'fuel';
 
@@ -54,7 +74,10 @@ export interface ReceiptExtraction {
 export interface Row extends ReceiptExtraction {
   id: string;
   fileName: string;
-  previewUrl?: string;
+  previewUrl?: string; // 화면·별지에 쓸 이미지 (PDF 는 첫 페이지를 PNG 로 렌더링한 것)
+  fileUrl?: string; // 원본 파일 blob URL (PDF 원본 열기용)
+  fileType: string; // MIME
+  pageCount: number; // PDF 페이지 수 (이미지는 0)
   status: 'processing' | 'done' | 'error';
   errorMsg?: string;
   // 개인경비 사용자 입력
@@ -76,6 +99,7 @@ export interface Row extends ReceiptExtraction {
 }
 
 export const bucketOf = (r: Row): Bucket => (r.routing_hint === 'fuel' ? 'fuel' : 'personal');
+export const isPdfRow = (r: Row): boolean => r.fileType === 'application/pdf';
 
 export interface Meta {
   dept: string;

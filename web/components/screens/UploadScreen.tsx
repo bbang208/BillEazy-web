@@ -2,6 +2,7 @@
 
 import React, { useRef, useState } from 'react';
 import { useStore } from '@/lib/store';
+import { ACCEPT_ATTR, ACCEPT_LABEL } from '@/lib/types';
 import { Button, Callout } from '@/components/primitives';
 import { UploadCloud } from '@/components/icons';
 
@@ -22,7 +23,7 @@ export function UploadScreen() {
         영수증만 던지세요. 청구서는 빌리지가 만들어요.
       </h1>
       <p style={{ fontSize: 15, color: 'var(--text-secondary)', marginTop: 12, marginBottom: 0 }}>
-        카드전표·주차·주유 영수증을 끌어다 놓으세요. AI가 자동으로 채워드려요.
+        카드전표·주차·주유 영수증을 끌어다 놓으세요. 사진도 PDF도 AI가 자동으로 읽어드려요.
       </p>
 
       <div
@@ -64,14 +65,14 @@ export function UploadScreen() {
               </Button>
             </div>
             <div style={{ fontSize: 12, color: 'var(--text-tertiary)', marginTop: 4 }}>
-              JPG · PNG · WEBP / 여러 장 한번에
+              {ACCEPT_LABEL} / 여러 장 한번에
             </div>
           </>
         )}
         <input
           ref={inputRef}
           type="file"
-          accept="image/*"
+          accept={ACCEPT_ATTR}
           multiple
           style={{ display: 'none' }}
           onChange={(e) => {

@@ -3,13 +3,14 @@
 import React, { useEffect, useRef, useState } from 'react';
 import { useStore } from '@/lib/store';
 import {
-  Bucket, BUCKET_COLOR, BUCKET_LABEL, CAT_COLOR, bucketOf, fuelAmount, fuelSubtotal, otherBucket, won, Row,
+  ACCEPT_ATTR, Bucket, BUCKET_COLOR, BUCKET_LABEL, CAT_COLOR, bucketOf, fuelAmount, fuelSubtotal,
+  isPdfRow, otherBucket, won, Row,
 } from '@/lib/types';
 import {
   Badge, Button, Callout, Card, CategorySelect, Checkbox, ChipButton, ConfidenceBadge,
   Divider, Dot, Field, Segmented, TextArea, Toast,
 } from '@/components/primitives';
-import { AlertTriangle, ArrowLeftRight, Fuel, Plus, Wallet } from '@/components/icons';
+import { AlertTriangle, ArrowLeftRight, ExternalLink, FileText, Fuel, Plus, Wallet } from '@/components/icons';
 
 function Thumb({ r, size }: { r: Row; size: number }) {
   return (
@@ -17,12 +18,66 @@ function Thumb({ r, size }: { r: Row; size: number }) {
       style={{
         width: size, height: size, borderRadius: 8, flexShrink: 0, overflow: 'hidden',
         background: 'var(--surface-alt)', display: 'flex', alignItems: 'center', justifyContent: 'center',
-        fontSize: size * 0.42, border: '1px solid var(--border)',
+        fontSize: size * 0.42, border: '1px solid var(--border)', color: 'var(--text-tertiary)',
       }}
     >
       {r.previewUrl
         ? <img src={r.previewUrl} alt="" style={{ width: '100%', height: '100%', objectFit: 'cover' }} />
+        : isPdfRow(r) ? <FileText size={Math.round(size * 0.5)} />
         : '🧾'}
+    </div>
+  );
+}
+
+/** 상세 화면의 큰 미리보기. PDF 는 첫 페이지 렌더링 이미지를 쓰고, 원본을 열 수 있게 해준다. */
+function Preview({ r, width, height }: { r: Row; width: number; height: number }) {
+  const pdf = isPdfRow(r);
+  return (
+    <div style={{ width, flexShrink: 0, display: 'flex', flexDirection: 'column', gap: 8 }}>
+      <div
+        style={{
+          width: '100%', height, borderRadius: 16, background: 'var(--surface-alt)', overflow: 'hidden',
+          display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center',
+          gap: 8, fontSize: 64, color: 'var(--text-tertiary)', border: '1px solid var(--border)',
+        }}
+      >
+        {r.previewUrl ? (
+          // PDF 는 잘리면 확인이 안 되므로 전체가 보이게(contain), 사진은 꽉 차게(cover)
+          <img src={r.previewUrl} alt="" style={{ width: '100%', height: '100%', objectFit: pdf ? 'contain' : 'cover' }} />
+        ) : pdf ? (
+          <>
+            <FileText size={44} />
+            <span style={{ fontSize: 13 }}>PDF 미리보기를 만들지 못했어요</span>
+          </>
+        ) : (
+          '🧾'
+        )}
+      </div>
+      {pdf && (
+        <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 8, flexWrap: 'wrap' }}>
+          <Badge color="#7048E8">
+            <span style={{ display: 'inline-flex', alignItems: 'center', gap: 4 }}>
+              <FileText size={11} /> PDF{r.pageCount > 1 ? ` · ${r.pageCount}쪽` : ''}
+            </span>
+          </Badge>
+          {r.fileUrl && (
+            <a
+              href={r.fileUrl}
+              target="_blank"
+              rel="noreferrer"
+              style={{ fontSize: 12, color: 'var(--text-secondary)', display: 'inline-flex', alignItems: 'center', gap: 4, textDecoration: 'none' }}
+            >
+              <ExternalLink size={12} /> 원본 PDF 열기
+            </a>
+          )}
+        </div>
+      )}
+      {pdf && r.pageCount > 1 && (
+        <Callout tone="info">
+          {r.pageCount}쪽짜리 PDF예요. 첫 번째 영수증 한 건만 인식했고, 별지에도 1쪽만 첨부돼요.
+          여러 건이면 나눠서 올려주세요.
+        </Callout>
+      )}
     </div>
   );
 }
@@ -68,7 +123,7 @@ function BucketSwitch({ row, onMove }: { row: Row; onMove: (to: Bucket) => void 
 
 export function ReviewScreen() {
   const {
-    personal, fuel, subtotal, fuelTotal, categoryTotals, needsReview, movedCount, undo,
+    personal, fuel, failed, subtotal, fuelTotal, categoryTotals, needsReview, movedCount, undo,
     meta, setMeta, updateRow, removeRow, moveRow, moveRows, undoMove, dismissUndo,
     addFiles, addFuelEntry, setStep,
   } = useStore();
@@ -156,6 +211,24 @@ export function ReviewScreen() {
         </div>
       </div>
 
+      {/* 읽지 못한 파일 안내 (청구 목록에는 넣지 않는다) */}
+      {failed.length > 0 && (
+        <div style={{ padding: '0 24px 12px' }}>
+          <Callout tone="danger">
+            <div style={{ display: 'flex', flexDirection: 'column', gap: 4 }}>
+              <b>{failed.length}개 파일은 청구에 넣지 못했어요</b>
+              {failed.map((f) => (
+                <div key={f.id} style={{ display: 'flex', alignItems: 'center', gap: 8, fontSize: 12, color: 'var(--text-secondary)' }}>
+                  <span style={{ color: 'var(--text)' }}>{f.fileName || '이름 없는 파일'}</span>
+                  <span>— {f.errorMsg || '인식하지 못했어요'}</span>
+                  <ChipButton onClick={() => removeRow(f.id)} title="목록에서 지우기">지우기</ChipButton>
+                </div>
+              ))}
+            </div>
+          </Callout>
+        </div>
+      )}
+
       {/* 본문 3분할 */}
       <div style={{ display: 'flex', gap: 16, padding: '0 24px 24px', alignItems: 'flex-start' }}>
         {/* A 좌 컬럼: 리스트 */}
@@ -215,6 +288,11 @@ export function ReviewScreen() {
                         </span>
                         <div style={{ display: 'flex', gap: 6, alignItems: 'center', flexWrap: 'wrap' }}>
                           <Badge color={BUCKET_COLOR[tab]}>{BUCKET_LABEL[tab]}</Badge>
+                          {isPdfRow(r) && (
+                            <Badge color="#7048E8">
+                              <span style={{ display: 'inline-flex', alignItems: 'center', gap: 3 }}><FileText size={10} /> PDF</span>
+                            </Badge>
+                          )}
                           {r.routedBy === 'user' && r.fileName ? (
                             <Badge color="var(--accent)">수동</Badge>
                           ) : (
@@ -240,7 +318,7 @@ export function ReviewScreen() {
           <input
             ref={fileRef}
             type="file"
-            accept="image/*,.pdf"
+            accept={ACCEPT_ATTR}
             multiple
             style={{ display: 'none' }}
             onChange={(e) => { addFiles(e.target.files); e.target.value = ''; }}
@@ -267,12 +345,8 @@ export function ReviewScreen() {
               <BucketSwitch row={sel} onMove={(to) => move(sel.id, to)} />
               <Divider />
               <div style={{ display: 'flex', gap: 20 }}>
-                {/* 영수증 이미지 */}
-                <div style={{ width: 320, height: 460, borderRadius: 16, background: 'var(--surface-alt)', flexShrink: 0, overflow: 'hidden', display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: 64 }}>
-                  {sel.previewUrl
-                    ? <img src={sel.previewUrl} alt="" style={{ width: '100%', height: '100%', objectFit: 'cover' }} />
-                    : '🧾'}
-                </div>
+                {/* 영수증 미리보기 (이미지 / PDF 첫 페이지) */}
+                <Preview r={sel} width={320} height={460} />
                 {/* 폼 우측 */}
                 <div style={{ flex: 1, minWidth: 0, display: 'flex', flexDirection: 'column', gap: 12 }}>
                   <Field ai label="사용일자" value={sel.datetime} readOnly />
@@ -320,12 +394,8 @@ export function ReviewScreen() {
               <BucketSwitch row={sel} onMove={(to) => move(sel.id, to)} />
               <Divider />
               <div style={{ display: 'flex', gap: 20 }}>
-                {/* 영수증에서 옮겨온 항목이면 이미지도 같이 보여준다 */}
-                {sel.previewUrl && (
-                  <div style={{ width: 280, height: 400, borderRadius: 16, background: 'var(--surface-alt)', flexShrink: 0, overflow: 'hidden' }}>
-                    <img src={sel.previewUrl} alt="" style={{ width: '100%', height: '100%', objectFit: 'cover' }} />
-                  </div>
-                )}
+                {/* 영수증에서 옮겨온 항목이면 미리보기도 같이 보여준다 */}
+                {sel.fileName && <Preview r={sel} width={280} height={400} />}
                 <div style={{ flex: 1, minWidth: 0, display: 'flex', flexDirection: 'column', gap: 12 }}>
                   {sel.parkingAuto && (
                     <Callout tone="info">

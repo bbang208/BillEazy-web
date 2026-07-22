@@ -1,7 +1,7 @@
 import 'dotenv/config';
 import express from 'express';
 import cors from 'cors';
-import { extractReceipt, type ImageMediaType } from './anthropic.js';
+import { extractReceipt, normalizeMediaType, PDF_MEDIA_TYPE } from './anthropic.js';
 import { buildBuffer, type ExportKind, type PersonalClaim, type FuelClaim } from './export.js';
 import { mockExtract } from './mock.js';
 
@@ -17,16 +17,26 @@ app.get('/health', (_req, res) => {
   res.json({ ok: true, service: '빌리지 server', model: 'claude-sonnet-5', hasKey: Boolean(process.env.ANTHROPIC_API_KEY), mock: process.env.MOCK_EXTRACT === '1' });
 });
 
-// 영수증 이미지 → 구조화 추출 + 계정과목 추천
+// Claude API 제한: 요청 32MB. base64 는 원본의 약 4/3 이므로 24MB 원본까지 허용.
+const MAX_BASE64_BYTES = 30 * 1024 * 1024;
+
+// 영수증 이미지·PDF → 구조화 추출 + 계정과목 추천
 app.post('/api/extract', async (req, res) => {
   try {
-    const { image, mediaType } = req.body as { image?: string; mediaType?: ImageMediaType };
-    if (!image) return res.status(400).json({ error: 'image(base64) 가 필요합니다.' });
+    const { image, mediaType } = req.body as { image?: string; mediaType?: string };
+    if (!image) return res.status(400).json({ error: '파일(base64) 이 필요합니다.' });
     // 크레딧 없이 테스트: MOCK_EXTRACT=1 이면 실제 API 대신 샘플 반환
     if (process.env.MOCK_EXTRACT === '1') {
       return res.json(await mockExtract());
     }
-    const result = await extractReceipt(image, mediaType ?? 'image/jpeg');
+    const mt = normalizeMediaType(mediaType) ?? 'image/jpeg';
+    if (image.length > MAX_BASE64_BYTES) {
+      const mb = Math.round((image.length * 3) / 4 / 1024 / 1024);
+      return res.status(400).json({
+        error: `파일이 너무 커요(약 ${mb}MB). ${mt === PDF_MEDIA_TYPE ? 'PDF' : '이미지'} 는 24MB 이하로 올려주세요.`,
+      });
+    }
+    const result = await extractReceipt(image, mt);
     res.json(result);
   } catch (e) {
     const msg = e instanceof Error ? e.message : 'extract 실패';
