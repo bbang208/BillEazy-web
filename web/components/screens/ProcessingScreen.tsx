@@ -4,10 +4,10 @@ import React from 'react';
 import { useStore } from '@/lib/store';
 import { won, Row, isPdfRow } from '@/lib/types';
 import { Button, Card } from '@/components/primitives';
-import { AlertTriangle, Check, FileText } from '@/components/icons';
+import { AlertTriangle, Check, FileText, RotateCcw } from '@/components/icons';
 
 export function ProcessingScreen() {
-  const { rows, setStep, reset } = useStore();
+  const { rows, setStep, reset, retryRow } = useStore();
   const total = rows.length;
   const done = rows.filter((r) => r.status === 'done').length;
   // 실패도 '처리 끝'이므로 진행률에 포함(막대가 멈춘 것처럼 보이지 않게)
@@ -45,7 +45,7 @@ export function ProcessingScreen() {
       ) : (
         <div style={{ display: 'grid', gridTemplateColumns: 'repeat(4, 1fr)', gap: 16 }}>
           {rows.map((r) => (
-            <FileCard key={r.id} r={r} />
+            <FileCard key={r.id} r={r} onRetry={() => void retryRow(r.id)} />
           ))}
         </div>
       )}
@@ -84,7 +84,7 @@ function Thumb({ r }: { r: Row }) {
   );
 }
 
-function FileCard({ r }: { r: Row }) {
+function FileCard({ r, onRetry }: { r: Row; onRetry: () => void }) {
   if (r.status === 'error') {
     return (
       <Card style={{ background: 'var(--danger-bg)', display: 'flex', flexDirection: 'column', gap: 8 }}>
@@ -95,6 +95,11 @@ function FileCard({ r }: { r: Row }) {
         <div style={{ fontSize: 12, color: 'var(--text-tertiary)', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
           {r.fileName}
         </div>
+        {r.retryable !== false && (
+          <Button variant="secondary" onClick={onRetry}>
+            <RotateCcw size={14} /> 다시 시도
+          </Button>
+        )}
       </Card>
     );
   }

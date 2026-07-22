@@ -80,6 +80,7 @@ export interface Row extends ReceiptExtraction {
   pageCount: number; // PDF 페이지 수 (이미지는 0)
   status: 'processing' | 'done' | 'error';
   errorMsg?: string;
+  retryable?: boolean; // 일시적 오류라 다시 시도해볼 만한지
   // 개인경비 사용자 입력
   note: string; // 적요
   category: Category | '';

@@ -5,8 +5,40 @@ import {
   Bucket, CATEGORIES, Category, Meta, ReceiptExtraction, Row, Step,
   bucketOf, confidenceBand, fuelSubtotal, rejectReason,
 } from './types';
-import { extractReceipt, exportDoc } from './api';
+import { ExtractError, extractReceipt, exportDoc } from './api';
 import { isPdf, renderPdfFirstPage } from './pdf';
+
+// 다시 시도할 때 쓰려고 원본 파일을 행 id 로 들고 있는다(상태에 넣지 않음).
+const fileById = new Map<string, File>();
+
+// 여러 장을 한꺼번에 던지면 API 가 붐벼서 529(overloaded)가 나기 쉽다. 동시 3건까지만.
+const CONCURRENCY = 3;
+const sleep = (ms: number) => new Promise((r) => setTimeout(r, ms));
+
+async function runPool<T>(items: T[], worker: (item: T, index: number) => Promise<void>) {
+  let next = 0;
+  await Promise.all(
+    Array.from({ length: Math.min(CONCURRENCY, items.length) }, async () => {
+      while (next < items.length) {
+        const i = next++;
+        await worker(items[i], i);
+      }
+    }),
+  );
+}
+
+/** 일시적 오류(529/429/5xx)는 백오프를 두고 스스로 몇 번 더 시도한다. */
+async function extractWithRetry(file: File, attempts = 2): Promise<ReceiptExtraction> {
+  for (let i = 0; ; i++) {
+    try {
+      return await extractReceipt(file);
+    } catch (e) {
+      const retryable = e instanceof ExtractError ? e.retryable : true;
+      if (!retryable || i >= attempts - 1) throw e;
+      await sleep(2000 + Math.random() * 1000); // 서버 자체 재시도 뒤 한 번 더 (약 2초 대기)
+    }
+  }
+}
 
 // 직전 수동 이동 스냅샷 (되돌리기용)
 interface MoveUndo {
@@ -197,6 +229,7 @@ export interface StoreValue {
   addFiles: (files: FileList | File[] | null) => Promise<void>;
   updateRow: (id: string, patch: Partial<Row>) => void;
   removeRow: (id: string) => void;
+  retryRow: (id: string) => Promise<void>; // 실패한 파일 다시 인식
   moveRow: (id: string, to: Bucket) => void;
   moveRows: (ids: string[], to: Bucket) => void;
   undoMove: () => void;
@@ -212,50 +245,68 @@ const Ctx = createContext<StoreValue | null>(null);
 export function StoreProvider({ children }: { children: React.ReactNode }) {
   const [state, dispatch] = useReducer(reducer, initial);
 
+  // 한 건 처리: 형식 검증 → (PDF면) 첫 페이지 렌더 → 인식.
+  const processRow = useCallback(async (rowId: string, file: File, withPreview: boolean) => {
+    // 지원하지 않는 형식·크기는 API 호출 전에 걸러 이유를 그대로 보여준다.
+    const reject = rejectReason(file);
+    if (reject) {
+      dispatch({ type: 'updateRow', id: rowId, patch: { status: 'error', errorMsg: reject, retryable: false } });
+      return;
+    }
+    // PDF 는 첫 페이지를 PNG 로 렌더링해 미리보기·엑셀 별지에 쓴다. 실패해도 인식은 계속.
+    if (withPreview && isPdf(file)) {
+      try {
+        const { dataUrl, pageCount } = await renderPdfFirstPage(file);
+        dispatch({ type: 'updateRow', id: rowId, patch: { previewUrl: dataUrl, pageCount } });
+      } catch {
+        /* 렌더 실패 시 미리보기만 없음 */
+      }
+    }
+    try {
+      const ex = await extractWithRetry(file);
+      dispatch({
+        type: 'updateRow',
+        id: rowId,
+        patch: {
+          ...ex,
+          status: 'done',
+          errorMsg: undefined,
+          category: ex.account_suggestion,
+          // 주유/주차 영수증은 인식 금액을 주차료 칸에 자동 채움
+          ...(ex.routing_hint === 'fuel' ? { parking: ex.total } : {}),
+        },
+      });
+    } catch (e) {
+      dispatch({
+        type: 'updateRow',
+        id: rowId,
+        patch: {
+          status: 'error',
+          errorMsg: (e as Error).message,
+          retryable: e instanceof ExtractError ? e.retryable : true,
+        },
+      });
+    }
+  }, []);
+
   const addFiles = useCallback(async (input: FileList | File[] | null) => {
     const files = input ? Array.from(input) : [];
     if (!files.length) return;
     dispatch({ type: 'step', step: 'processing' });
     const pending = files.map(newRow);
+    pending.forEach((row, i) => fileById.set(row.id, files[i]));
     dispatch({ type: 'addRows', rows: pending });
-    await Promise.all(
-      pending.map(async (row, i) => {
-        const file = files[i];
-        // 지원하지 않는 형식·크기는 API 호출 전에 걸러 이유를 그대로 보여준다.
-        const reject = rejectReason(file);
-        if (reject) {
-          dispatch({ type: 'updateRow', id: row.id, patch: { status: 'error', errorMsg: reject } });
-          return;
-        }
-        // PDF 는 첫 페이지를 PNG 로 렌더링해 미리보기·엑셀 별지에 쓴다. 실패해도 인식은 계속.
-        if (isPdf(file)) {
-          try {
-            const { dataUrl, pageCount } = await renderPdfFirstPage(file);
-            dispatch({ type: 'updateRow', id: row.id, patch: { previewUrl: dataUrl, pageCount } });
-          } catch {
-            /* 렌더 실패 시 미리보기만 없음 */
-          }
-        }
-        try {
-          const ex = await extractReceipt(file);
-          dispatch({
-            type: 'updateRow',
-            id: row.id,
-            patch: {
-              ...ex,
-              status: 'done',
-              category: ex.account_suggestion,
-              // 주유/주차 영수증은 인식 금액을 주차료 칸에 자동 채움
-              ...(ex.routing_hint === 'fuel' ? { parking: ex.total } : {}),
-            },
-          });
-        } catch (e) {
-          dispatch({ type: 'updateRow', id: row.id, patch: { status: 'error', errorMsg: (e as Error).message } });
-        }
-      }),
-    );
+    await runPool(pending, (row, i) => processRow(row.id, files[i], true));
     dispatch({ type: 'step', step: 'review' });
-  }, []);
+  }, [processRow]);
+
+  // 실패한 파일 다시 시도 (원본 파일을 그대로 재사용)
+  const retryRow = useCallback(async (id: string) => {
+    const file = fileById.get(id);
+    if (!file) return;
+    dispatch({ type: 'updateRow', id, patch: { status: 'processing', errorMsg: undefined } });
+    await processRow(id, file, true);
+  }, [processRow]);
 
   const updateRow = useCallback((id: string, patch: Partial<Row>) => dispatch({ type: 'updateRow', id, patch }), []);
   const removeRow = useCallback((id: string) => dispatch({ type: 'removeRow', id }), []);
@@ -339,7 +390,7 @@ export function StoreProvider({ children }: { children: React.ReactNode }) {
     meta: state.meta,
     ...derived,
     undo: state.undo ? { to: state.undo.to, count: state.undo.rows.length, rows: state.undo.rows } : null,
-    setStep, addFiles, updateRow, removeRow, moveRow, moveRows, undoMove, dismissUndo,
+    setStep, addFiles, updateRow, removeRow, retryRow, moveRow, moveRows, undoMove, dismissUndo,
     addFuelEntry, setMeta, reset, download,
   };
 

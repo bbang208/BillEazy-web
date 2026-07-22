@@ -10,7 +10,7 @@ import {
   Badge, Button, Callout, Card, CategorySelect, Checkbox, ChipButton, ConfidenceBadge,
   Divider, Dot, Field, Segmented, TextArea, Toast,
 } from '@/components/primitives';
-import { AlertTriangle, ArrowLeftRight, ExternalLink, FileText, Fuel, Plus, Wallet } from '@/components/icons';
+import { AlertTriangle, ArrowLeftRight, ExternalLink, FileText, Fuel, Plus, RotateCcw, Wallet } from '@/components/icons';
 
 function Thumb({ r, size }: { r: Row; size: number }) {
   return (
@@ -124,7 +124,7 @@ function BucketSwitch({ row, onMove }: { row: Row; onMove: (to: Bucket) => void 
 export function ReviewScreen() {
   const {
     personal, fuel, failed, subtotal, fuelTotal, categoryTotals, needsReview, movedCount, undo,
-    meta, setMeta, updateRow, removeRow, moveRow, moveRows, undoMove, dismissUndo,
+    meta, setMeta, updateRow, removeRow, retryRow, moveRow, moveRows, undoMove, dismissUndo,
     addFiles, addFuelEntry, setStep,
   } = useStore();
 
@@ -221,6 +221,11 @@ export function ReviewScreen() {
                 <div key={f.id} style={{ display: 'flex', alignItems: 'center', gap: 8, fontSize: 12, color: 'var(--text-secondary)' }}>
                   <span style={{ color: 'var(--text)' }}>{f.fileName || '이름 없는 파일'}</span>
                   <span>— {f.errorMsg || '인식하지 못했어요'}</span>
+                  {f.retryable !== false && (
+                    <ChipButton tone="primary" onClick={() => void retryRow(f.id)} title="이 파일만 다시 인식">
+                      <RotateCcw size={12} /> 다시 시도
+                    </ChipButton>
+                  )}
                   <ChipButton onClick={() => removeRow(f.id)} title="목록에서 지우기">지우기</ChipButton>
                 </div>
               ))}

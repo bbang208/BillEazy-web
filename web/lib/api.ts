@@ -21,6 +21,18 @@ export function fileToBase64(file: File): Promise<{ base64: string; mediaType: s
   });
 }
 
+/** 서버가 내려준 사용자용 문구 + 재시도 가능 여부. */
+export class ExtractError extends Error {
+  retryable: boolean;
+  code?: string;
+  constructor(message: string, retryable: boolean, code?: string) {
+    super(message);
+    this.name = 'ExtractError';
+    this.retryable = retryable;
+    this.code = code;
+  }
+}
+
 export async function extractReceipt(file: File): Promise<ReceiptExtraction> {
   const { base64, mediaType } = await fileToBase64(file);
   const r = await fetch(`${BASE}/api/extract`, {
@@ -29,8 +41,8 @@ export async function extractReceipt(file: File): Promise<ReceiptExtraction> {
     body: JSON.stringify({ image: base64, mediaType }),
   });
   if (!r.ok) {
-    const msg = (await r.json().catch(() => ({}))).error ?? '인식 실패';
-    throw new Error(msg);
+    const body = (await r.json().catch(() => ({}))) as { error?: string; code?: string; retryable?: boolean };
+    throw new ExtractError(body.error ?? '인식에 실패했어요. 다시 시도해 주세요.', body.retryable ?? r.status >= 500, body.code);
   }
   return r.json();
 }

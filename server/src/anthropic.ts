@@ -3,7 +3,46 @@ import { RECEIPT_JSON_SCHEMA, ReceiptExtraction } from './schema.js';
 import { applyRules } from './categories.js';
 
 // ANTHROPIC_API_KEY 를 환경변수에서 자동으로 읽음.
-const client = new Anthropic();
+// 529(overloaded)·429·5xx 는 SDK 가 지수 백오프로 자동 재시도한다(기본 2회 → 3회).
+// 더 긴 간격의 재시도는 웹 쪽에서 한 번 더 감싼다. 합쳐서 최대 8회, 약 20초.
+const client = new Anthropic({ maxRetries: 3 });
+
+export interface ExtractFailure {
+  status: number; // 클라이언트에 내려줄 HTTP 상태
+  code: string;
+  message: string; // 사용자에게 그대로 보여줄 한국어 문구
+  retryable: boolean;
+  detail?: string; // 서버 로그용 원문
+}
+
+/** Anthropic/네트워크 오류를 사용자 문구로 번역한다. 원문 JSON 을 UI 로 흘리지 않기 위함. */
+export function describeError(e: unknown): ExtractFailure {
+  const err = e as { status?: number; message?: string; error?: { error?: { type?: string; message?: string } } };
+  const detail = err?.message ?? String(e);
+  const status = typeof err?.status === 'number' ? err.status : 0;
+  const type = err?.error?.error?.type ?? '';
+  const body = err?.error?.error?.message ?? '';
+
+  if (status === 529 || type === 'overloaded_error') {
+    return { status: 503, code: 'overloaded', retryable: true, detail, message: 'AI 서버가 잠시 붐벼요. 몇 초 뒤 다시 시도해 주세요.' };
+  }
+  if (status === 429 || type === 'rate_limit_error') {
+    return { status: 429, code: 'rate_limit', retryable: true, detail, message: '요청이 한꺼번에 몰렸어요. 잠시 후 다시 시도해 주세요.' };
+  }
+  if (/credit balance|insufficient/i.test(body)) {
+    return { status: 402, code: 'no_credit', retryable: false, detail, message: 'Claude API 크레딧이 부족해요. 콘솔에서 충전 후 다시 시도해 주세요.' };
+  }
+  if (status === 401 || status === 403) {
+    return { status: 502, code: 'auth', retryable: false, detail, message: 'AI 서버 인증에 실패했어요. 관리자에게 문의해 주세요.' };
+  }
+  if (status === 413 || status === 400) {
+    return { status: 400, code: 'bad_file', retryable: false, detail, message: '이 파일은 AI가 읽을 수 없어요. 용량을 줄이거나 사진으로 다시 올려주세요.' };
+  }
+  if (status >= 500 || status === 408 || !status) {
+    return { status: 503, code: 'upstream', retryable: true, detail, message: '일시적인 오류로 못 읽었어요. 다시 시도해 주세요.' };
+  }
+  return { status: 500, code: 'unknown', retryable: true, detail, message: '인식에 실패했어요. 다시 시도해 주세요.' };
+}
 
 const MODEL = 'claude-sonnet-5';
 

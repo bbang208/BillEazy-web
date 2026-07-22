@@ -1,7 +1,7 @@
 import 'dotenv/config';
 import express from 'express';
 import cors from 'cors';
-import { extractReceipt, normalizeMediaType, PDF_MEDIA_TYPE } from './anthropic.js';
+import { describeError, extractReceipt, normalizeMediaType, PDF_MEDIA_TYPE } from './anthropic.js';
 import { buildBuffer, type ExportKind, type PersonalClaim, type FuelClaim } from './export.js';
 import { mockExtract } from './mock.js';
 
@@ -39,9 +39,10 @@ app.post('/api/extract', async (req, res) => {
     const result = await extractReceipt(image, mt);
     res.json(result);
   } catch (e) {
-    const msg = e instanceof Error ? e.message : 'extract 실패';
-    console.error('[extract]', msg);
-    res.status(500).json({ error: msg });
+    // SDK 원문(예: `529 {"type":"error",...}`)은 로그에만 남기고, 화면에는 한국어 안내만 보낸다.
+    const f = describeError(e);
+    console.error('[extract]', f.code, f.detail);
+    res.status(f.status).json({ error: f.message, code: f.code, retryable: f.retryable });
   }
 });
 
