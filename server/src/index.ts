@@ -4,7 +4,7 @@ import cors from 'cors';
 import { describeError, extractReceipt, normalizeMediaType, PDF_MEDIA_TYPE } from './anthropic.js';
 import { buildBuffer, claimFileName, type ExportKind, type PersonalClaim, type FuelClaim } from './export.js';
 import { mockExtract } from './mock.js';
-import { geocode, MapsError, routeDistance, searchPlaces } from './maps.js';
+import { geocode, MapsError, ncpKey, ncpKeyId, routeDistance, searchClientId, searchClientSecret, searchPlaces } from './maps.js';
 
 const app = express();
 
@@ -24,8 +24,8 @@ app.get('/health', (_req, res) => {
     mock: process.env.MOCK_EXTRACT === '1',
     maps: {
       mock: process.env.MOCK_MAPS === '1',
-      hasSearchKey: Boolean(process.env.NAVER_SEARCH_CLIENT_ID && process.env.NAVER_SEARCH_CLIENT_SECRET),
-      hasRouteKey: Boolean(process.env.NCP_MAPS_KEY_ID && process.env.NCP_MAPS_KEY),
+      hasSearchKey: Boolean(searchClientId() && searchClientSecret()),
+      hasRouteKey: Boolean(ncpKeyId() && ncpKey()),
     },
   });
 });

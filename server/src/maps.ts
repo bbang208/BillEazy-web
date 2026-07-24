@@ -25,6 +25,26 @@ export interface RouteResult {
   durationMin: number; // 예상 소요(분)
 }
 
+// 환경변수 이름이 조금 달라도 잡히도록 흔한 별칭까지 순서대로 확인한다.
+function firstEnv(...names: string[]): string | undefined {
+  for (const n of names) {
+    const v = process.env[n];
+    if (v && v.trim()) return v.trim();
+  }
+  return undefined;
+}
+
+// 네이버 지역검색(개발자센터) 키
+export const searchClientId = () =>
+  firstEnv('NAVER_SEARCH_CLIENT_ID', 'NAVER_CLIENT_ID', 'X_NAVER_CLIENT_ID');
+export const searchClientSecret = () =>
+  firstEnv('NAVER_SEARCH_CLIENT_SECRET', 'NAVER_CLIENT_SECRET', 'X_NAVER_CLIENT_SECRET');
+// NCP Maps(Directions·Geocoding) 키
+export const ncpKeyId = () =>
+  firstEnv('NCP_MAPS_KEY_ID', 'NCP_APIGW_API_KEY_ID', 'X_NCP_APIGW_API_KEY_ID', 'NCP_CLIENT_ID');
+export const ncpKey = () =>
+  firstEnv('NCP_MAPS_KEY', 'NCP_APIGW_API_KEY', 'X_NCP_APIGW_API_KEY', 'NCP_CLIENT_SECRET');
+
 export class MapsError extends Error {
   status: number;
   code: string;
@@ -68,8 +88,8 @@ export async function searchPlaces(query: string): Promise<Place[]> {
   if (!q) return [];
   if (process.env.MOCK_MAPS === '1') return mockPlaces(q);
 
-  const id = process.env.NAVER_SEARCH_CLIENT_ID;
-  const secret = process.env.NAVER_SEARCH_CLIENT_SECRET;
+  const id = searchClientId();
+  const secret = searchClientSecret();
   if (!id || !secret) {
     throw new MapsError(503, 'MAPS_NO_KEY', '장소 검색 키가 설정되지 않았어요. 관리자에게 문의해 주세요.');
   }
@@ -113,8 +133,8 @@ export async function geocode(query: string): Promise<Place[]> {
   if (!q) return [];
   if (process.env.MOCK_MAPS === '1') return mockPlaces(q);
 
-  const id = process.env.NCP_MAPS_KEY_ID;
-  const key = process.env.NCP_MAPS_KEY;
+  const id = ncpKeyId();
+  const key = ncpKey();
   if (!id || !key) {
     throw new MapsError(503, 'MAPS_NO_KEY', '주소 변환 키가 설정되지 않았어요.');
   }
@@ -148,8 +168,8 @@ export async function geocode(query: string): Promise<Place[]> {
 export async function routeDistance(start: string, goal: string): Promise<RouteResult> {
   if (process.env.MOCK_MAPS === '1') return mockRoute(start, goal);
 
-  const id = process.env.NCP_MAPS_KEY_ID;
-  const key = process.env.NCP_MAPS_KEY;
+  const id = ncpKeyId();
+  const key = ncpKey();
   if (!id || !key) {
     throw new MapsError(503, 'MAPS_NO_KEY', '경로 조회 키가 설정되지 않았어요. 관리자에게 문의해 주세요.');
   }
