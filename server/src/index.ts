@@ -2,7 +2,7 @@ import 'dotenv/config';
 import express from 'express';
 import cors from 'cors';
 import { describeError, extractReceipt, normalizeMediaType, PDF_MEDIA_TYPE } from './anthropic.js';
-import { buildBuffer, type ExportKind, type PersonalClaim, type FuelClaim } from './export.js';
+import { buildBuffer, claimFileName, type ExportKind, type PersonalClaim, type FuelClaim } from './export.js';
 import { mockExtract } from './mock.js';
 
 const app = express();
@@ -10,7 +10,8 @@ const app = express();
 const originEnv = (process.env.ALLOWED_ORIGIN ?? 'http://localhost:3000').trim();
 // ALLOWED_ORIGIN=* 이면 모든 오리진 허용(초기 셋업용). 아니면 콤마 구분 목록만 허용.
 const corsOrigin = originEnv === '*' ? true : originEnv.split(',').map((s) => s.trim());
-app.use(cors({ origin: corsOrigin }));
+// 브라우저(다른 오리진)에서 다운로드 파일명을 읽으려면 Content-Disposition 을 노출해야 한다.
+app.use(cors({ origin: corsOrigin, exposedHeaders: ['Content-Disposition'] }));
 app.use(express.json({ limit: '50mb' })); // base64 이미지 수용
 
 app.get('/health', (_req, res) => {
@@ -53,7 +54,8 @@ app.post('/api/export', async (req, res) => {
     if (!data) return res.status(400).json({ error: 'data 가 필요합니다.' });
     const k: ExportKind = kind === 'fuel' ? 'fuel' : 'personal';
     const buf = await buildBuffer(k, data);
-    const filename = k === 'fuel' ? '주유대청구양식.xlsx' : '개인경비청구서.xlsx';
+    // 파일명: 뉴로랩 {작성자} 개인경비|주유대 청구 YY MM DD.xlsx (날짜 = 작성일)
+    const filename = claimFileName(k, data.name, (data as FuelClaim).writeDate);
     res.setHeader('Content-Type', 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet');
     res.setHeader('Content-Disposition', `attachment; filename*=UTF-8''${encodeURIComponent(filename)}`);
     res.end(buf);

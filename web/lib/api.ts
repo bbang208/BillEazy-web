@@ -47,6 +47,21 @@ export async function extractReceipt(file: File): Promise<ReceiptExtraction> {
   return r.json();
 }
 
+// 서버가 Content-Disposition 으로 내려준 파일명(뉴로랩 {작성자} … YY MM DD.xlsx)을 그대로 쓴다.
+function filenameFrom(header: string | null, kind: 'personal' | 'fuel'): string {
+  const star = /filename\*=UTF-8''([^;]+)/i.exec(header || '');
+  if (star) {
+    try {
+      return decodeURIComponent(star[1].trim());
+    } catch {
+      /* 잘못 인코딩된 헤더면 아래 기본값 */
+    }
+  }
+  const plain = /filename="?([^";]+)"?/i.exec(header || '');
+  if (plain) return plain[1];
+  return kind === 'fuel' ? '주유대 청구.xlsx' : '개인경비 청구.xlsx';
+}
+
 // 종류별로 회사 원본 양식(.xlsx)을 채워 내려받는다. (개인경비/주유대는 원래 별도 문서)
 export async function exportDoc(kind: 'personal' | 'fuel', data: unknown): Promise<void> {
   const r = await fetch(`${BASE}/api/export`, {
@@ -59,7 +74,7 @@ export async function exportDoc(kind: 'personal' | 'fuel', data: unknown): Promi
   const url = URL.createObjectURL(blob);
   const a = document.createElement('a');
   a.href = url;
-  a.download = kind === 'fuel' ? '주유대청구양식.xlsx' : '개인경비청구서.xlsx';
+  a.download = filenameFrom(r.headers.get('Content-Disposition'), kind);
   a.click();
   URL.revokeObjectURL(url);
 }

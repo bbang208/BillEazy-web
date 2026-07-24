@@ -11,6 +11,7 @@ import {
   Divider, Dot, Field, Segmented, TextArea, Toast,
 } from '@/components/primitives';
 import { AlertTriangle, ArrowLeftRight, ExternalLink, FileText, Fuel, Plus, RotateCcw, Wallet } from '@/components/icons';
+import { formatDate, formatDateTime, normalizeDate } from '@/lib/date';
 
 function Thumb({ r, size }: { r: Row; size: number }) {
   return (
@@ -354,7 +355,7 @@ export function ReviewScreen() {
                 <Preview r={sel} width={320} height={460} />
                 {/* 폼 우측 */}
                 <div style={{ flex: 1, minWidth: 0, display: 'flex', flexDirection: 'column', gap: 12 }}>
-                  <Field ai label="사용일자" value={sel.datetime} readOnly />
+                  <Field ai label="사용일자" value={formatDateTime(sel.datetime)} readOnly />
                   <Field label="사용내역" value={sel.items.join(', ')} onChange={(v) => updateRow(sel.id, { items: v ? [v] : [] })} />
                   <Field ai label="거래처" value={sel.merchant} readOnly />
                   <div style={{ display: 'flex', gap: 12 }}>
@@ -408,7 +409,12 @@ export function ReviewScreen() {
                     </Callout>
                   )}
                   {/* 영수증에서 옮겨온 항목은 인식된 일시가 들어오므로 날짜만 보여준다 */}
-                  <Field label="일자" value={sel.datetime.slice(0, 10)} onChange={(v) => updateRow(sel.id, { datetime: v })} placeholder="예: 2026-06-15" />
+                  <Field
+                    label="일자"
+                    value={formatDate(sel.datetime)}
+                    onChange={(v) => updateRow(sel.id, { datetime: normalizeDate(v) || v })}
+                    placeholder="예: 2026/06/15"
+                  />
                   <Field required label="목적" value={sel.purpose} onChange={(v) => updateRow(sel.id, { purpose: v })} placeholder="예: 미팅" />
                   <Field required label="목적지" value={sel.destination} onChange={(v) => updateRow(sel.id, { destination: v })} placeholder="예: 판교 고객사" />
                   <Field
@@ -455,7 +461,7 @@ export function ReviewScreen() {
           <span style={{ fontSize: 16, fontWeight: 700, color: 'var(--text)' }}>청구 요약</span>
           <Field label="부서명" value={meta.dept} onChange={(v) => setMeta({ dept: v })} />
           <Field label="성명" value={meta.name} onChange={(v) => setMeta({ name: v })} placeholder="이름" />
-          <Field label="지출 기간" value={meta.period} onChange={(v) => setMeta({ period: v })} placeholder="2026-06-01 ~ 2026-06-30" />
+          <Field label="지출 기간" value={meta.period} onChange={(v) => setMeta({ period: v })} placeholder="2026/06/01 ~ 2026/06/30" />
           <Divider />
           <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: 14, color: 'var(--text-secondary)' }}>
             <span>소계</span>

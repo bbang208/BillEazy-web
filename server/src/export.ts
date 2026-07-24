@@ -2,6 +2,7 @@ import ExcelJS from 'exceljs';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { CATEGORIES, Category, FUEL_RATE_PER_KM } from './schema.js';
+import { formatPeriod, normalizeDate, todayISO } from './date.js';
 
 // 회사 원본 엑셀 양식(server/templates/*.xlsx)의 셀을 채워 100% 동일한 서식으로 산출한다.
 const TEMPLATES = path.join(path.dirname(fileURLToPath(import.meta.url)), '..', 'templates');
@@ -17,10 +18,20 @@ export interface PersonalClaim { dept: string; name: string; period: string; ite
 export interface FuelClaim { name: string; writeDate?: string; period: string; ratePerKm?: number; items: FuelItem[]; images?: ReceiptImage[] }
 export type ExportKind = 'personal' | 'fuel';
 
+// 엑셀 날짜 표기: 원본 템플릿은 개인경비 numFmt 14(로케일 의존 m/d/y), 주유대 55 로 서로 달랐다.
+// 두 양식 모두 한국형 순서로 통일한다.
+const DATE_FMT = 'yyyy/mm/dd';
+
 function toDate(s: string): Date | string {
-  const m = /^(\d{4})-(\d{2})-(\d{2})/.exec(s || '');
+  const m = /^(\d{4})-(\d{2})-(\d{2})/.exec(normalizeDate(s));
   // ExcelJS 는 날짜를 UTC 기준으로 직렬화 → UTC 자정으로 만들어 하루 밀림 방지
   return m ? new Date(Date.UTC(Number(m[1]), Number(m[2]) - 1, Number(m[3]))) : (s || '');
+}
+
+function setDateCell(ws: ExcelJS.Worksheet, addr: string, s: string) {
+  const cell = ws.getCell(addr);
+  cell.value = toDate(s);
+  if (cell.value instanceof Date) cell.numFmt = DATE_FMT;
 }
 
 function extOf(mt: string): 'png' | 'jpeg' | 'gif' | null {
@@ -73,7 +84,7 @@ export async function buildPersonalBuffer(p: PersonalClaim): Promise<Buffer> {
   ws.getCell('B5').value = p.dept || '';
   ws.getCell('C5').value = p.name || '';
   ws.getCell('F5').value = p.name || ''; // 작성자 명 (원본 템플릿의 #VALUE! 오류 셀을 덮어씀)
-  ws.getCell('E7').value = `지출 기간  ${p.period || ''}`;
+  ws.getCell('E7').value = `지출 기간  ${formatPeriod(p.period)}`;
 
   const CAP = 10; // 기본 데이터 행 10~19
   const n = p.items.length;
@@ -87,7 +98,7 @@ export async function buildPersonalBuffer(p: PersonalClaim): Promise<Buffer> {
   }
   p.items.forEach((it, i) => {
     const r = 10 + i;
-    ws.getCell('B' + r).value = toDate(it.date);
+    setDateCell(ws, 'B' + r, it.date);
     ws.getCell('C' + r).value = it.detail || '';
     ws.getCell('D' + r).value = it.vendor || '';
     ws.getCell('E' + r).value = it.note || '';
@@ -122,7 +133,7 @@ export async function buildFuelBuffer(f: FuelClaim): Promise<Buffer> {
   const ws = wb.worksheets[0];
 
   ws.getCell('B3').value = f.name || '';
-  ws.getCell('H3').value = f.period || '';
+  ws.getCell('H3').value = formatPeriod(f.period);
   ws.getCell('I3').value = rate;
 
   const CAP = 4; // 데이터 행 7~10
@@ -141,7 +152,7 @@ export async function buildFuelBuffer(f: FuelClaim): Promise<Buffer> {
     const amount = Math.round((it.distanceKm || 0) * rate);
     const toll = it.toll || 0, parking = it.parking || 0, etc = it.etc || 0;
     const sub = amount + toll + parking + etc;
-    ws.getCell('B' + r).value = toDate(it.date);
+    setDateCell(ws, 'B' + r, it.date);
     ws.getCell('C' + r).value = it.purpose || '';
     ws.getCell('D' + r).value = it.destination || '';
     ws.getCell('E' + r).value = it.distanceKm || 0;
@@ -162,6 +173,18 @@ export async function buildFuelBuffer(f: FuelClaim): Promise<Buffer> {
 
   addAttachments(wb, f.images);
   return (await wb.xlsx.writeBuffer()) as unknown as Buffer;
+}
+
+/**
+ * 다운로드 파일명: `뉴로랩 {작성자} 개인경비 청구 YY MM DD.xlsx` (주유대는 '주유대 청구').
+ * 날짜는 작성일 기준. 작성자가 비어 있으면 이름 자리를 생략한다.
+ */
+export function claimFileName(kind: ExportKind, name?: string, date?: string): string {
+  const iso = normalizeDate(date) || todayISO();
+  const [y, m, d] = iso.split('-');
+  const who = (name || '').replace(/[\\/:*?"<>|]/g, '').trim();
+  const kindLabel = kind === 'fuel' ? '주유대 청구' : '개인경비 청구';
+  return ['뉴로랩', who, kindLabel, `${y.slice(2)} ${m} ${d}`].filter(Boolean).join(' ') + '.xlsx';
 }
 
 export async function buildBuffer(kind: ExportKind, data: PersonalClaim | FuelClaim): Promise<Buffer> {

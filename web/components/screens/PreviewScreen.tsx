@@ -5,6 +5,7 @@ import { useStore } from '@/lib/store';
 import { won, fuelAmount, fuelSubtotal, isPdfRow, Row } from '@/lib/types';
 import { Button, Callout, Segmented, CatBadge } from '@/components/primitives';
 import { Download, FileText } from '@/components/icons';
+import { formatDate, formatPeriod, todayISO } from '@/lib/date';
 
 type Doc = 'personal' | 'fuel' | 'attach';
 
@@ -154,7 +155,7 @@ function PersonalDoc({
         <div style={{ display: 'flex', gap: 32, alignItems: 'flex-start', flexWrap: 'wrap' }}>
           <MetaItem label="부서명" value={meta.dept} />
           <MetaItem label="성명" value={meta.name} />
-          <MetaItem label="지출 기간" value={meta.period} />
+          <MetaItem label="지출 기간" value={formatPeriod(meta.period)} />
         </div>
         <div style={{ display: 'flex' }}>
           {['작성', '담당', '팀장'].map((label) => (
@@ -193,7 +194,7 @@ function PersonalDoc({
         ) : (
           personal.map((r) => (
             <div key={r.id} style={{ display: 'grid', gridTemplateColumns: cols }}>
-              <div style={cellBase}>{r.datetime.slice(0, 10)}</div>
+              <div style={cellBase}>{formatDate(r.datetime)}</div>
               <div style={cellBase}>
                 <span style={{ overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
                   {r.items.join(', ')}
@@ -270,8 +271,8 @@ function FuelDoc({
 
       <div style={{ display: 'flex', gap: 32, marginBottom: 20, flexWrap: 'wrap' }}>
         <MetaItem label="성명" value={meta.name} />
-        <MetaItem label="작성일자" value={new Date().toISOString().slice(0, 10)} />
-        <MetaItem label="기간" value={meta.period} />
+        <MetaItem label="작성일자" value={formatDate(todayISO())} />
+        <MetaItem label="기간" value={formatPeriod(meta.period)} />
         <MetaItem label="단가" value="310원/km" />
       </div>
 
@@ -311,7 +312,7 @@ function FuelDoc({
 
             {fuel.map((r) => (
               <div key={r.id} style={{ display: 'grid', gridTemplateColumns: cols }}>
-                <div style={cellBase}>{r.datetime.slice(0, 10)}</div>
+                <div style={cellBase}>{formatDate(r.datetime)}</div>
                 <div style={cellBase}>{r.purpose}</div>
                 <div style={cellBase}>{r.destination}</div>
                 <div style={{ ...cellBase, justifyContent: 'flex-end' }}>{r.distanceKm ?? 0}</div>

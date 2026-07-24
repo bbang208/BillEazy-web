@@ -7,6 +7,7 @@ import {
 } from './types';
 import { ExtractError, extractReceipt, exportDoc } from './api';
 import { isPdf, renderPdfFirstPage } from './pdf';
+import { formatPeriod, normalizeDate, todayISO } from './date';
 
 // 다시 시도할 때 쓰려고 원본 파일을 행 id 로 들고 있는다(상태에 넣지 않음).
 const fileById = new Map<string, File>();
@@ -351,9 +352,9 @@ export function StoreProvider({ children }: { children: React.ReactNode }) {
       await exportDoc('personal', {
         dept: state.meta.dept,
         name: state.meta.name,
-        period: state.meta.period,
+        period: formatPeriod(state.meta.period),
         items: personalRows.map((r) => ({
-          date: (r.datetime || '').slice(0, 10),
+          date: normalizeDate(r.datetime),
           detail: r.items.join(', '),
           vendor: r.merchant,
           note: r.note,
@@ -367,11 +368,11 @@ export function StoreProvider({ children }: { children: React.ReactNode }) {
     if (fuelRows.length) {
       await exportDoc('fuel', {
         name: state.meta.name,
-        writeDate: new Date().toISOString().slice(0, 10),
-        period: state.meta.period,
+        writeDate: todayISO(),
+        period: formatPeriod(state.meta.period),
         ratePerKm: 310,
         items: fuelRows.map((r) => ({
-          date: (r.datetime || '').slice(0, 10),
+          date: normalizeDate(r.datetime),
           purpose: r.purpose,
           destination: r.destination,
           distanceKm: r.distanceKm ?? 0,
