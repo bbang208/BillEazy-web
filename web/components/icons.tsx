@@ -151,3 +151,17 @@ export const HelpCircle = (p: IconProps) => (
     <path d="M12 17h.01" />
   </Svg>
 );
+
+export const Search = (p: IconProps) => (
+  <Svg {...p}>
+    <circle cx="11" cy="11" r="8" />
+    <path d="m21 21-4.3-4.3" />
+  </Svg>
+);
+
+export const MapPin = (p: IconProps) => (
+  <Svg {...p}>
+    <path d="M20 10c0 4.4-5.5 9.3-7.3 10.8a1 1 0 0 1-1.4 0C9.5 19.3 4 14.4 4 10a8 8 0 0 1 16 0Z" />
+    <circle cx="12" cy="10" r="3" />
+  </Svg>
+);

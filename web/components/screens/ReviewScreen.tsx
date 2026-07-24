@@ -10,8 +10,12 @@ import {
   Badge, Button, Callout, Card, CategorySelect, Checkbox, ChipButton, ConfidenceBadge,
   Divider, Dot, Field, Segmented, TextArea, Toast,
 } from '@/components/primitives';
-import { AlertTriangle, ArrowLeftRight, ExternalLink, FileText, Fuel, Plus, RotateCcw, Wallet } from '@/components/icons';
+import { AlertTriangle, ArrowLeftRight, ExternalLink, FileText, Fuel, MapPin, Plus, RotateCcw, Wallet } from '@/components/icons';
 import { formatDate, formatDateTime, normalizeDate } from '@/lib/date';
+import { PlaceSearch } from '@/components/PlaceSearch';
+import { DEFAULT_ORIGIN, hasCoord, routeSig } from '@/lib/maps';
+import { routeDistance } from '@/lib/api';
+import type { Place } from '@/lib/types';
 
 function Thumb({ r, size }: { r: Row; size: number }) {
   return (
@@ -146,6 +150,30 @@ export function ReviewScreen() {
     const t = setTimeout(() => dismissUndo(), 9000);
     return () => clearTimeout(t);
   }, [undoKey, dismissUndo]);
+
+  // 출발지·목적지 좌표가 모두 정해지면 네이버 지도 경로로 거리(km)를 자동 계산한다.
+  const [routeBusy, setRouteBusy] = useState(false);
+  const [routeErr, setRouteErr] = useState<string | null>(null);
+  const sig = routeSig(sel?.origin, sel?.dest);
+  useEffect(() => {
+    setRouteErr(null);
+    if (!sel || !sig || sel.routeSig === sig) return;
+    const rowId = sel.id;
+    const origin = sel.origin!;
+    const dest = sel.dest!;
+    let alive = true;
+    setRouteBusy(true);
+    routeDistance(origin, dest)
+      .then((r) => {
+        if (!alive) return;
+        updateRow(rowId, { distanceKm: r.distanceKm, routeSig: sig, distanceAuto: true });
+      })
+      .catch((e) => alive && setRouteErr(e instanceof Error ? e.message : '경로를 조회하지 못했어요.'))
+      .finally(() => alive && setRouteBusy(false));
+    return () => {
+      alive = false;
+    };
+  }, [sel?.id, sig, sel?.routeSig, updateRow]);
 
   function switchTab(next: Bucket) {
     setTab(next);
@@ -416,15 +444,49 @@ export function ReviewScreen() {
                     placeholder="예: 2026/06/15"
                   />
                   <Field required label="목적" value={sel.purpose} onChange={(v) => updateRow(sel.id, { purpose: v })} placeholder="예: 미팅" />
-                  <Field required label="목적지" value={sel.destination} onChange={(v) => updateRow(sel.id, { destination: v })} placeholder="예: 판교 고객사" />
+
+                  <PlaceSearch
+                    label="출발지"
+                    value={sel.origin?.name ?? ''}
+                    placeholder="출발지 검색 (기본: 회사)"
+                    hint={
+                      hasCoord(sel.origin)
+                        ? (sel.origin?.roadAddress || sel.origin?.address || undefined)
+                        : '좌표 미설정 — 검색해 선택하면 경로 거리를 자동 계산해요'
+                    }
+                    onSelect={(p) => updateRow(sel.id, { origin: p })}
+                    onText={(t) => updateRow(sel.id, { origin: { name: t, roadAddress: '', address: '', lng: 0, lat: 0 } })}
+                  />
+
+                  <PlaceSearch
+                    label="목적지"
+                    required
+                    value={sel.destination}
+                    placeholder="예: 판교 고객사, 스타벅스 판교점"
+                    hint={hasCoord(sel.dest) ? (sel.dest?.roadAddress || sel.dest?.address || undefined) : undefined}
+                    onSelect={(p) => updateRow(sel.id, { dest: p, destination: p.name })}
+                    onText={(t) => updateRow(sel.id, { destination: t, dest: undefined, distanceAuto: false })}
+                  />
+
                   <Field
                     required
                     type="number"
-                    label="거리(km)"
+                    label={sel.distanceAuto ? '거리(km) · 지도 자동계산' : '거리(km)'}
                     value={sel.distanceKm ?? ''}
-                    onChange={(v) => updateRow(sel.id, { distanceKm: v ? Number(v) : null })}
+                    onChange={(v) => updateRow(sel.id, { distanceKm: v ? Number(v) : null, distanceAuto: false })}
                     placeholder="예: 32"
                   />
+                  {routeBusy && (
+                    <span style={{ fontSize: 12, color: 'var(--text-secondary)' }}>경로 거리 계산 중…</span>
+                  )}
+                  {routeErr && (
+                    <Callout tone="warning" icon="⚠️">{routeErr} 거리는 직접 입력해 주세요.</Callout>
+                  )}
+                  {sel.distanceAuto && !routeBusy && !routeErr && (
+                    <span style={{ fontSize: 12, color: 'var(--text-tertiary)', display: 'flex', alignItems: 'center', gap: 4 }}>
+                      <MapPin size={12} /> 네이버 지도 경로 기준 · 필요하면 직접 수정할 수 있어요
+                    </span>
+                  )}
                   <div style={{ display: 'flex', gap: 12 }}>
                     <Field readOnly label="단가" value="310원/km" width="50%" />
                     <Field readOnly right label="금액(거리×단가)" value={won(fuelAmount(sel))} width="50%" />

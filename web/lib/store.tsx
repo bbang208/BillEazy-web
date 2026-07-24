@@ -8,6 +8,7 @@ import {
 import { ExtractError, extractReceipt, exportDoc } from './api';
 import { isPdf, renderPdfFirstPage } from './pdf';
 import { formatPeriod, normalizeDate, todayISO } from './date';
+import { DEFAULT_ORIGIN } from './maps';
 
 // 다시 시도할 때 쓰려고 원본 파일을 행 id 로 들고 있는다(상태에 넣지 않음).
 const fileById = new Map<string, File>();
@@ -87,6 +88,7 @@ function moveOne(r: Row, to: Bucket): Row {
       routedBy: 'user',
       parking: fill ? r.total : r.parking,
       parkingAuto: fill ? true : r.parkingAuto,
+      origin: r.origin ?? DEFAULT_ORIGIN, // 출발지 기본값(회사)
     };
   }
   return {
@@ -184,6 +186,7 @@ function blankFuelRow(): Row {
     routing_hint: 'fuel',
     note: '', category: '', remark: '',
     purpose: '', destination: '', distanceKm: null, toll: 0, parking: 0, etc: 0,
+    origin: DEFAULT_ORIGIN, // 출발지 기본값(회사)
     confirmed: false,
     routedBy: 'user', parkingAuto: false,
   };

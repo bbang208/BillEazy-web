@@ -1,3 +1,12 @@
+// 네이버 지도로 선택한 장소(출발지/목적지). 좌표는 WGS84 경도/위도.
+export interface Place {
+  name: string;
+  roadAddress: string;
+  address: string;
+  lng: number;
+  lat: number;
+}
+
 export type Category = '복리후생비' | '여비교통비' | '접대비' | '통신비' | '지급수수료' | '소모품비';
 
 export const CATEGORIES: Category[] = ['복리후생비', '여비교통비', '접대비', '통신비', '지급수수료', '소모품비'];
@@ -92,6 +101,11 @@ export interface Row extends ReceiptExtraction {
   toll: number;
   parking: number;
   etc: number;
+  // 네이버 지도로 선택한 출발지·목적지(좌표 포함). destination 문자열은 dest.name 과 동기화.
+  origin?: Place;
+  dest?: Place;
+  routeSig?: string; // 마지막으로 거리를 계산한 origin|dest 좌표 키(중복 호출 방지)
+  distanceAuto?: boolean; // 거리를 경로에서 자동으로 채웠는지
   confirmed: boolean;
   // 분류(개인경비/주유대)를 누가 정했는지. 'user' = 사용자가 수동으로 바꾼 항목.
   routedBy: 'ai' | 'user';

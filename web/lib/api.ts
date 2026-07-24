@@ -1,4 +1,4 @@
-import type { ReceiptExtraction } from './types';
+import type { Place, ReceiptExtraction } from './types';
 
 // server(Railway) 호출. API 키는 server 에만 있으므로 프론트는 직접 호출한다.
 const BASE = process.env.NEXT_PUBLIC_API_BASE ?? 'http://localhost:8080';
@@ -77,4 +77,40 @@ export async function exportDoc(kind: 'personal' | 'fuel', data: unknown): Promi
   a.download = filenameFrom(r.headers.get('Content-Disposition'), kind);
   a.click();
   URL.revokeObjectURL(url);
+}
+
+// ── 네이버 지도 ──
+
+/** 키워드로 장소(POI) 검색. 실패 시 빈 배열(입력 중 흔한 오류라 조용히 처리). */
+export async function searchPlaces(query: string, signal?: AbortSignal): Promise<Place[]> {
+  const q = query.trim();
+  if (!q) return [];
+  try {
+    const r = await fetch(`${BASE}/api/places?query=${encodeURIComponent(q)}`, { signal });
+    if (!r.ok) return [];
+    const d = (await r.json()) as { places?: Place[] };
+    return d.places ?? [];
+  } catch {
+    return []; // AbortError 포함
+  }
+}
+
+export interface RouteInfo {
+  distanceKm: number;
+  distanceM: number;
+  tollFare: number;
+  fuelPrice: number;
+  durationMin: number;
+}
+
+/** 출발지·목적지 좌표 → 주행 거리/톨비. 경로 실패 시 서버 문구로 throw. */
+export async function routeDistance(start: Place, goal: Place): Promise<RouteInfo> {
+  const s = `${start.lng},${start.lat}`;
+  const g = `${goal.lng},${goal.lat}`;
+  const r = await fetch(`${BASE}/api/route?start=${encodeURIComponent(s)}&goal=${encodeURIComponent(g)}`);
+  if (!r.ok) {
+    const b = (await r.json().catch(() => ({}))) as { error?: string };
+    throw new Error(b.error ?? '경로를 조회하지 못했어요.');
+  }
+  return r.json();
 }
