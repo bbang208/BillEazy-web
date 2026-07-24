@@ -6,13 +6,13 @@ export type { Place };
 // TODO: 실제 사무실 도로명 주소·좌표로 교체(경도 lng / 위도 lat).
 //       좌표를 모르면 화면에서 '출발지'를 한 번 검색·선택하면 자동으로 채워진다.
 // NEXT_PUBLIC_DEFAULT_ORIGIN 에 JSON 을 넣으면 그 값으로 덮어쓴다.
-// 회사(뉴로랩) 사무실. 좌표는 배포 후 NCP Geocoding 으로 확정해 채운다.
+// 회사(뉴로랩) 사무실 기본 출발지. 좌표는 NCP Geocoding 으로 확정(경기 안산시 상록구 해안로 705).
 const FALLBACK_ORIGIN: Place = {
   name: '뉴로랩 (회사)',
   roadAddress: '경기 안산시 상록구 해안로 705 301호',
-  address: '',
-  lng: 0,
-  lat: 0,
+  address: '경기도 안산시 상록구 사동 1271-11',
+  lng: 126.8301164,
+  lat: 37.2908609,
 };
 
 function readEnvOrigin(): Place | null {
