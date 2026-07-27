@@ -11,9 +11,9 @@ import {
   Divider, Dot, Field, Segmented, TextArea, Toast,
 } from '@/components/primitives';
 import { AlertTriangle, ArrowLeftRight, ExternalLink, FileText, Fuel, MapPin, Plus, RotateCcw, Wallet } from '@/components/icons';
-import { formatDate, formatDateTime, normalizeDate } from '@/lib/date';
+import { formatDate, formatDateTime, normalizeDate, normalizeDateTime } from '@/lib/date';
 import { PlaceSearch } from '@/components/PlaceSearch';
-import { PeriodPicker } from '@/components/PeriodPicker';
+import { DateField, PeriodPicker } from '@/components/PeriodPicker';
 import { DEFAULT_ORIGIN, hasCoord, routeSig } from '@/lib/maps';
 import { routeDistance } from '@/lib/api';
 import type { Place } from '@/lib/types';
@@ -384,7 +384,14 @@ export function ReviewScreen() {
                 <Preview r={sel} width={320} height={460} />
                 {/* 폼 우측 */}
                 <div style={{ flex: 1, minWidth: 0, display: 'flex', flexDirection: 'column', gap: 12 }}>
-                  <Field ai label="사용일자" value={formatDateTime(sel.datetime)} readOnly />
+                  {/* AI 가 인식하지 못했으면 달력·타이핑으로 직접 입력한다 */}
+                  <DateField
+                    ai
+                    label="사용일자"
+                    value={formatDateTime(sel.datetime)}
+                    onChange={(v) => updateRow(sel.id, { datetime: normalizeDateTime(v) || v })}
+                    placeholder="예: 2026/07/15"
+                  />
                   <Field label="사용내역" value={sel.items.join(', ')} onChange={(v) => updateRow(sel.id, { items: v ? [v] : [] })} />
                   <Field ai label="거래처" value={sel.merchant} readOnly />
                   <div style={{ display: 'flex', gap: 12 }}>
@@ -438,7 +445,7 @@ export function ReviewScreen() {
                     </Callout>
                   )}
                   {/* 영수증에서 옮겨온 항목은 인식된 일시가 들어오므로 날짜만 보여준다 */}
-                  <Field
+                  <DateField
                     label="일자"
                     value={formatDate(sel.datetime)}
                     onChange={(v) => updateRow(sel.id, { datetime: normalizeDate(v) || v })}
