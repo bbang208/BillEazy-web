@@ -79,6 +79,25 @@ export async function exportDoc(kind: 'personal' | 'fuel', data: unknown): Promi
   URL.revokeObjectURL(url);
 }
 
+// ── Claude 사용량 ──
+
+export interface UsageInfo {
+  enabled: boolean;
+  month?: string; // 'YYYY-MM'
+  costUsd?: number;
+}
+
+/** 이번 달 Claude API 사용 금액. Admin 키 미설정·오류 시 enabled:false (표시 숨김). */
+export async function fetchUsage(): Promise<UsageInfo> {
+  try {
+    const r = await fetch(`${BASE}/api/usage`);
+    if (!r.ok) return { enabled: false };
+    return (await r.json()) as UsageInfo;
+  } catch {
+    return { enabled: false };
+  }
+}
+
 // ── 하이웍스 전자결재 ──
 
 export interface ApprovalDraftPayload {

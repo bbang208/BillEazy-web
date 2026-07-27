@@ -6,6 +6,7 @@ import { buildBuffer, claimFileName, type ExportKind, type PersonalClaim, type F
 import { mockExtract } from './mock.js';
 import { geocode, MapsError, ncpKey, ncpKeyId, routeDistance, searchClientId, searchClientSecret, searchPlaces } from './maps.js';
 import { approvalEvents, createDraft, documentState, hiworksFormId, hiworksToken, HiworksError, recordCallback, type DraftFile } from './hiworks.js';
+import { adminKey, monthlyCost } from './usage.js';
 
 const app = express();
 // Railway 프록시 뒤에서 req.protocol/host 가 원래 값(https·공개 도메인)으로 잡히게 한다(콜백 URL 자동 구성용).
@@ -34,7 +35,20 @@ app.get('/health', (_req, res) => {
       hasToken: Boolean(hiworksToken()),
       formId: hiworksFormId() || null,
     },
+    usage: {
+      hasAdminKey: Boolean(adminKey()),
+    },
   });
+});
+
+// 이번 달 Claude API 사용 금액(Anthropic Cost API). Admin 키 없으면 enabled:false.
+app.get('/api/usage', async (_req, res) => {
+  try {
+    res.json(await monthlyCost());
+  } catch (e) {
+    const msg = e instanceof Error ? e.message : '사용량 조회 실패';
+    res.status(502).json({ error: msg });
+  }
 });
 
 function sendMapsError(res: express.Response, e: unknown) {

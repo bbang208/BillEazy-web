@@ -1,13 +1,19 @@
 'use client';
 
-import React from 'react';
+import React, { useEffect, useState } from 'react';
 import { STEPS } from '@/lib/types';
 import { useStore } from '@/lib/store';
+import { fetchUsage, type UsageInfo } from '@/lib/api';
 import { HelpCircle, Receipt } from './icons';
 
 export function Header() {
   const { step, meta } = useStore();
   const activeIdx = STEPS.findIndex((s) => s.key === step);
+  // 이번 달 Claude API 사용 금액 (서버에 Admin 키가 있을 때만 표시)
+  const [usage, setUsage] = useState<UsageInfo | null>(null);
+  useEffect(() => {
+    fetchUsage().then(setUsage).catch(() => {});
+  }, []);
 
   return (
     <header
@@ -47,6 +53,17 @@ export function Header() {
       </nav>
 
       <div style={{ display: 'flex', alignItems: 'center', gap: 12, minWidth: 160, justifyContent: 'flex-end' }}>
+        {usage?.enabled && usage.costUsd != null && (
+          <span
+            title={`${Number(usage.month?.split('-')[1])}월 Claude API 사용 금액 (10분 단위 갱신)`}
+            style={{
+              fontSize: 12, fontWeight: 600, color: 'var(--text-secondary)', whiteSpace: 'nowrap',
+              background: 'var(--surface-alt)', border: '1px solid var(--border)', borderRadius: 999, padding: '4px 10px',
+            }}
+          >
+            Claude {Number(usage.month?.split('-')[1])}월 ${usage.costUsd.toFixed(2)}
+          </span>
+        )}
         <span style={{ color: 'var(--text-secondary)', cursor: 'pointer', display: 'flex' }} title="유의사항"><HelpCircle size={18} /></span>
         <div style={{ width: 32, height: 32, borderRadius: 999, background: 'var(--primary-tint)', color: 'var(--primary)', display: 'flex', alignItems: 'center', justifyContent: 'center', fontWeight: 700, fontSize: 14 }}>
           {meta.name?.[0] ?? '방'}
