@@ -8,7 +8,7 @@ import {
 import { ExtractError, extractReceipt, exportDoc, createApprovalDraft, fileToBase64 } from './api';
 import { buildApprovalForm, claimFileLabel } from './approval';
 import { isPdf, renderPdfFirstPage } from './pdf';
-import { formatPeriod, normalizeDate, todayISO } from './date';
+import { currentMonthPeriod, formatPeriod, normalizeDate, todayISO } from './date';
 import { DEFAULT_ORIGIN } from './maps';
 
 // 다시 시도할 때 쓰려고 원본 파일을 행 id 로 들고 있는다(상태에 넣지 않음).
@@ -70,7 +70,8 @@ type Action =
 const initial: State = {
   step: 'upload',
   rows: [],
-  meta: { dept: '연구소', name: '', period: '', account: '' },
+  // 지출 기간은 작성 중인 달의 1일~말일로 미리 채운다(수정 가능).
+  meta: { dept: '연구소', name: '', period: currentMonthPeriod(), account: '' },
   undo: null,
 };
 

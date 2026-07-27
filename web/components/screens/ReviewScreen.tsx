@@ -523,7 +523,7 @@ export function ReviewScreen() {
           <span style={{ fontSize: 16, fontWeight: 700, color: 'var(--text)' }}>청구 요약</span>
           <Field label="부서명" value={meta.dept} onChange={(v) => setMeta({ dept: v })} />
           <Field label="성명" value={meta.name} onChange={(v) => setMeta({ name: v })} placeholder="이름" />
-          <Field label="지출 기간" value={meta.period} onChange={(v) => setMeta({ period: v })} placeholder="2026/06/01 ~ 2026/06/30" />
+          <Field label="지출 기간" value={meta.period} onChange={(v) => setMeta({ period: v })} placeholder="2026년 7월 1일 ~ 2026년 7월 31일" />
           <Field label="지급 계좌" value={meta.account} onChange={(v) => setMeta({ account: v })} placeholder="카카오뱅크 3333-00-0000000 홍길동" />
           <Divider />
           <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: 14, color: 'var(--text-secondary)' }}>

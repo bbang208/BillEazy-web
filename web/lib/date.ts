@@ -89,6 +89,14 @@ export function todayISO(): string {
   return iso(d.getFullYear(), d.getMonth() + 1, d.getDate());
 }
 
+/** 이번 달 1일 ~ 말일. 지출 기간 기본값 '20xx년 x월 1일 ~ 20xx년 x월 xx일'. */
+export function currentMonthPeriod(): string {
+  const d = new Date();
+  const y = d.getFullYear(), m = d.getMonth() + 1;
+  const last = new Date(y, m, 0).getDate();
+  return `${y}년 ${m}월 1일 ~ ${y}년 ${m}월 ${last}일`;
+}
+
 /** "2026-06-01 ~ 2026-06-30" 처럼 날짜가 섞인 자유 문자열의 날짜 부분만 표기 통일. */
 export function formatPeriod(input: string | null | undefined): string {
   const s = (input || '').trim();
