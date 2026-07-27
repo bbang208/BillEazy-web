@@ -79,6 +79,27 @@ export async function exportDoc(kind: 'personal' | 'fuel', data: unknown): Promi
   URL.revokeObjectURL(url);
 }
 
+// ── 하이웍스 전자결재 ──
+
+export interface ApprovalDraftPayload {
+  subject: string;
+  contents: string; // 품의 본문 html
+  claims: { kind: 'personal' | 'fuel'; data: unknown }[]; // 서버가 회사 양식 엑셀로 만들어 첨부
+  attachments: { file_name: string; file: string }[]; // 영수증 원본(base64)
+}
+
+/** 기안 문서 생성 → 기안하기 팝업 URL. 실제 상신은 팝업에서 결재선 지정 후 [기안하기]. */
+export async function createApprovalDraft(payload: ApprovalDraftPayload): Promise<{ approvalKey: string; loginUrl: string }> {
+  const r = await fetch(`${BASE}/api/approval/draft`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(payload),
+  });
+  const body = (await r.json().catch(() => ({}))) as { approvalKey?: string; loginUrl?: string; error?: string };
+  if (!r.ok || !body.loginUrl) throw new Error(body.error ?? '전자결재 기안 문서를 만들지 못했어요.');
+  return { approvalKey: body.approvalKey ?? '', loginUrl: body.loginUrl };
+}
+
 // ── 네이버 지도 ──
 
 /** 키워드로 장소(POI) 검색. 실패 시 빈 배열(입력 중 흔한 오류라 조용히 처리). */

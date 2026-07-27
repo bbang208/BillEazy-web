@@ -120,6 +120,7 @@ export interface Meta {
   dept: string;
   name: string;
   period: string;
+  account: string; // 지급 계좌(은행·계좌번호·예금주) — 전자결재 품의 본문에 표기
 }
 
 export function confidenceBand(c: number): 'high' | 'mid' | 'low' {

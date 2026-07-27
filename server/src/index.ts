@@ -5,8 +5,11 @@ import { describeError, extractReceipt, normalizeMediaType, PDF_MEDIA_TYPE } fro
 import { buildBuffer, claimFileName, type ExportKind, type PersonalClaim, type FuelClaim } from './export.js';
 import { mockExtract } from './mock.js';
 import { geocode, MapsError, ncpKey, ncpKeyId, routeDistance, searchClientId, searchClientSecret, searchPlaces } from './maps.js';
+import { approvalEvents, createDraft, documentState, hiworksFormId, hiworksToken, HiworksError, recordCallback, type DraftFile } from './hiworks.js';
 
 const app = express();
+// Railway 프록시 뒤에서 req.protocol/host 가 원래 값(https·공개 도메인)으로 잡히게 한다(콜백 URL 자동 구성용).
+app.set('trust proxy', true);
 
 const originEnv = (process.env.ALLOWED_ORIGIN ?? 'http://localhost:3000').trim();
 // ALLOWED_ORIGIN=* 이면 모든 오리진 허용(초기 셋업용). 아니면 콤마 구분 목록만 허용.
@@ -26,6 +29,10 @@ app.get('/health', (_req, res) => {
       mock: process.env.MOCK_MAPS === '1',
       hasSearchKey: Boolean(searchClientId() && searchClientSecret()),
       hasRouteKey: Boolean(ncpKeyId() && ncpKey()),
+    },
+    hiworks: {
+      hasToken: Boolean(hiworksToken()),
+      formId: hiworksFormId() || null,
     },
   });
 });
@@ -117,6 +124,80 @@ app.post('/api/export', async (req, res) => {
     const msg = e instanceof Error ? e.message : 'export 실패';
     console.error('[export]', msg);
     res.status(500).json({ error: msg });
+  }
+});
+
+// ── 하이웍스 전자결재 ──
+
+function sendHiworksError(res: express.Response, e: unknown) {
+  if (e instanceof HiworksError) {
+    if (e.detail) console.error('[hiworks]', e.code, e.detail);
+    return res.status(e.status).json({ error: e.message, code: e.code });
+  }
+  const msg = e instanceof Error ? e.message : '전자결재 요청 실패';
+  console.error('[hiworks]', msg);
+  res.status(500).json({ error: '전자결재 요청 중 오류가 발생했어요.' });
+}
+
+// 문서 상태 변경 콜백을 받을 공개 주소. 환경변수가 없으면 요청 호스트로 구성한다(로컬은 수신 불가·기안은 정상).
+function callbackUrl(req: express.Request): string {
+  const env = (process.env.HIWORKS_CALLBACK_URL ?? '').trim();
+  if (env) return env.endsWith('/api/approval/callback') ? env : `${env.replace(/\/$/, '')}/api/approval/callback`;
+  return `${req.protocol}://${req.get('host')}/api/approval/callback`;
+}
+
+// 확정 청구 데이터(개인경비·주유대) → 회사 엑셀 첨부 + 기안 문서 생성 → 기안하기 팝업 URL 반환.
+// 실제 상신은 사용자가 팝업(login_url)에서 결재선을 지정하고 [기안하기]를 눌러야 완료된다.
+app.post('/api/approval/draft', async (req, res) => {
+  try {
+    const { subject, contents, claims, attachments } = req.body as {
+      subject?: string;
+      contents?: string; // 기안 본문(html). 회사 양식 폼은 웹에서 구성해 보낸다.
+      claims?: { kind?: ExportKind; data?: PersonalClaim | FuelClaim }[];
+      attachments?: DraftFile[]; // 영수증 원본 등 추가 첨부(base64)
+    };
+    if (!subject?.trim()) return res.status(400).json({ error: 'subject(기안 제목) 가 필요합니다.' });
+    if (!contents?.trim()) return res.status(400).json({ error: 'contents(기안 본문) 가 필요합니다.' });
+
+    const files: DraftFile[] = [];
+    for (const c of claims ?? []) {
+      if (!c?.data) continue;
+      const k: ExportKind = c.kind === 'fuel' ? 'fuel' : 'personal';
+      const buf = await buildBuffer(k, c.data);
+      files.push({
+        file_name: claimFileName(k, c.data.name, (c.data as FuelClaim).writeDate),
+        file: Buffer.from(buf).toString('base64'),
+      });
+    }
+    for (const a of attachments ?? []) {
+      if (a?.file_name && a?.file) files.push({ file_name: a.file_name, file: a.file });
+    }
+
+    const result = await createDraft({ subject, contents, callbackUrl: callbackUrl(req), files });
+    res.json(result);
+  } catch (e) {
+    sendHiworksError(res, e);
+  }
+});
+
+// 하이웍스가 문서 상태 변경 시 호출(기안 progress·반려 rejected·취소 canceled·완료 complete·삭제 deleted)
+app.get('/api/approval/callback', (req, res) => {
+  const ev = recordCallback(req.query as Record<string, unknown>);
+  console.log('[hiworks] callback', ev.approvalCode || ev.approvalId, ev.state);
+  res.send('OK');
+});
+
+// 수신한 콜백 목록(웹에서 상신 결과 확인용)
+app.get('/api/approval/events', (_req, res) => {
+  res.json({ events: approvalEvents() });
+});
+
+// 문서 상태 재조회(콜백의 approval_id 사용)
+app.get('/api/approval/status/:id', async (req, res) => {
+  try {
+    res.json({ state: await documentState(req.params.id) });
+  } catch (e) {
+    sendHiworksError(res, e);
   }
 });
 

@@ -5,7 +5,8 @@ import {
   Bucket, CATEGORIES, Category, Meta, ReceiptExtraction, Row, Step,
   bucketOf, confidenceBand, fuelSubtotal, rejectReason,
 } from './types';
-import { ExtractError, extractReceipt, exportDoc } from './api';
+import { ExtractError, extractReceipt, exportDoc, createApprovalDraft, fileToBase64 } from './api';
+import { buildApprovalForm, claimFileLabel } from './approval';
 import { isPdf, renderPdfFirstPage } from './pdf';
 import { formatPeriod, normalizeDate, todayISO } from './date';
 import { DEFAULT_ORIGIN } from './maps';
@@ -69,7 +70,7 @@ type Action =
 const initial: State = {
   step: 'upload',
   rows: [],
-  meta: { dept: '연구소', name: '', period: '' },
+  meta: { dept: '연구소', name: '', period: '', account: '' },
   undo: null,
 };
 
@@ -192,6 +193,56 @@ function blankFuelRow(): Row {
   };
 }
 
+// 확정 청구 데이터 → 서버 /api/export·/api/approval/draft 에 보낼 문서별 페이로드.
+// 엑셀 다운로드와 전자결재 첨부가 항상 같은 내용이 되도록 한 곳에서 만든다.
+async function buildClaimPayloads(rows: Row[], meta: Meta) {
+  const personalRows = rows.filter((r) => r.routing_hint !== 'fuel' && r.status !== 'error');
+  const fuelRows = rows.filter((r) => r.routing_hint === 'fuel' && r.status !== 'error');
+  const claims: { kind: 'personal' | 'fuel'; data: unknown }[] = [];
+  if (personalRows.length) {
+    claims.push({
+      kind: 'personal',
+      data: {
+        dept: meta.dept,
+        name: meta.name,
+        period: formatPeriod(meta.period),
+        items: personalRows.map((r) => ({
+          date: normalizeDate(r.datetime),
+          detail: r.items.join(', '),
+          vendor: r.merchant,
+          note: r.note,
+          amount: r.total,
+          category: (r.category || '소모품비') as Category,
+          remark: r.remark, // 비고는 웹 입력값만 (비우면 빈칸)
+        })),
+        images: await rowsToImages(personalRows),
+      },
+    });
+  }
+  if (fuelRows.length) {
+    claims.push({
+      kind: 'fuel',
+      data: {
+        name: meta.name,
+        writeDate: todayISO(),
+        period: formatPeriod(meta.period),
+        ratePerKm: 310,
+        items: fuelRows.map((r) => ({
+          date: normalizeDate(r.datetime),
+          purpose: r.purpose,
+          destination: r.destination,
+          distanceKm: r.distanceKm ?? 0,
+          toll: r.toll,
+          parking: r.parking || r.total || 0,
+          etc: r.etc,
+        })),
+        images: await rowsToImages(fuelRows),
+      },
+    });
+  }
+  return { claims, personalRows, fuelRows };
+}
+
 // 영수증 미리보기(blob URL) → base64. 별지 첨부용.
 async function rowsToImages(rows: Row[]): Promise<{ name: string; base64: string; mediaType: string }[]> {
   const out: { name: string; base64: string; mediaType: string }[] = [];
@@ -242,6 +293,7 @@ export interface StoreValue {
   setMeta: (patch: Partial<Meta>) => void;
   reset: () => void;
   download: () => Promise<void>;
+  submitApproval: () => Promise<string>; // 하이웍스 기안 문서 생성 → 기안하기 팝업 URL 반환
 }
 
 const Ctx = createContext<StoreValue | null>(null);
@@ -349,43 +401,34 @@ export function StoreProvider({ children }: { children: React.ReactNode }) {
   }, [state.rows]);
 
   const download = useCallback(async () => {
-    const personalRows = state.rows.filter((r) => r.routing_hint !== 'fuel' && r.status !== 'error');
-    const fuelRows = state.rows.filter((r) => r.routing_hint === 'fuel' && r.status !== 'error');
-    if (personalRows.length) {
-      await exportDoc('personal', {
-        dept: state.meta.dept,
-        name: state.meta.name,
-        period: formatPeriod(state.meta.period),
-        items: personalRows.map((r) => ({
-          date: normalizeDate(r.datetime),
-          detail: r.items.join(', '),
-          vendor: r.merchant,
-          note: r.note,
-          amount: r.total,
-          category: (r.category || '소모품비') as Category,
-          remark: r.remark, // 비고는 웹 입력값만 (비우면 빈칸)
-        })),
-        images: await rowsToImages(personalRows),
-      });
+    const { claims } = await buildClaimPayloads(state.rows, state.meta);
+    for (const c of claims) await exportDoc(c.kind, c.data);
+  }, [state.rows, state.meta]);
+
+  // 하이웍스 전자결재 상신: 회사 품의 양식 본문 + 엑셀·영수증 원본 첨부로 기안 문서를 만들고
+  // 기안하기 팝업 URL 을 돌려준다. 실제 상신은 팝업에서 결재선 지정 후 [기안하기].
+  const submitApproval = useCallback(async (): Promise<string> => {
+    const { claims, personalRows, fuelRows } = await buildClaimPayloads(state.rows, state.meta);
+    if (!claims.length) throw new Error('상신할 청구 내역이 없어요.');
+    // 영수증 원본 파일(이미지·PDF)도 문서에 함께 첨부한다.
+    const attachments: { file_name: string; file: string }[] = [];
+    for (const r of [...personalRows, ...fuelRows]) {
+      const f = fileById.get(r.id);
+      if (!f) continue;
+      const { base64 } = await fileToBase64(f);
+      attachments.push({ file_name: f.name, file: base64 });
     }
-    if (fuelRows.length) {
-      await exportDoc('fuel', {
-        name: state.meta.name,
-        writeDate: todayISO(),
-        period: formatPeriod(state.meta.period),
-        ratePerKm: 310,
-        items: fuelRows.map((r) => ({
-          date: normalizeDate(r.datetime),
-          purpose: r.purpose,
-          destination: r.destination,
-          distanceKm: r.distanceKm ?? 0,
-          toll: r.toll,
-          parking: r.parking || r.total || 0,
-          etc: r.etc,
-        })),
-        images: await rowsToImages(fuelRows),
-      });
-    }
+    const personalTotal = personalRows.reduce((s, r) => s + (r.total || 0), 0);
+    const fuelTotal = fuelRows.reduce((s, r) => s + fuelSubtotal(r), 0);
+    const { subject, contents } = buildApprovalForm({
+      meta: state.meta,
+      personalTotal,
+      fuelTotal,
+      excelLabels: claims.map((c) => claimFileLabel(c.kind, state.meta.name)),
+      receiptCount: attachments.length,
+    });
+    const { loginUrl } = await createApprovalDraft({ subject, contents, claims, attachments });
+    return loginUrl;
   }, [state.rows, state.meta]);
 
   const value: StoreValue = {
@@ -395,7 +438,7 @@ export function StoreProvider({ children }: { children: React.ReactNode }) {
     ...derived,
     undo: state.undo ? { to: state.undo.to, count: state.undo.rows.length, rows: state.undo.rows } : null,
     setStep, addFiles, updateRow, removeRow, retryRow, moveRow, moveRows, undoMove, dismissUndo,
-    addFuelEntry, setMeta, reset, download,
+    addFuelEntry, setMeta, reset, download, submitApproval,
   };
 
   return <Ctx.Provider value={value}>{children}</Ctx.Provider>;

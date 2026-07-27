@@ -1,13 +1,35 @@
 'use client';
 
-import React from 'react';
+import React, { useState } from 'react';
 import { useStore } from '@/lib/store';
 import { won } from '@/lib/types';
-import { Button } from '@/components/primitives';
+import { Button, Callout } from '@/components/primitives';
 import { Check } from '@/components/icons';
 
 export function DoneScreen() {
-  const { personal, fuel, subtotal, fuelTotal, download, reset, setStep } = useStore();
+  const { personal, fuel, subtotal, fuelTotal, download, reset, setStep, submitApproval } = useStore();
+  const [submitting, setSubmitting] = useState(false);
+  const [submitted, setSubmitted] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+
+  // 팝업 차단을 피하려고 클릭 시점에 창을 먼저 열고, 기안 문서가 만들어지면 그 창을 이동시킨다.
+  const onSubmit = () => {
+    if (submitting) return;
+    const popup = window.open('about:blank', '_blank');
+    setSubmitting(true);
+    setError(null);
+    submitApproval()
+      .then((loginUrl) => {
+        if (popup) popup.location.href = loginUrl;
+        else window.open(loginUrl, '_blank');
+        setSubmitted(true);
+      })
+      .catch((e) => {
+        popup?.close();
+        setError((e as Error).message);
+      })
+      .finally(() => setSubmitting(false));
+  };
 
   return (
     <div
@@ -50,7 +72,10 @@ export function DoneScreen() {
       </p>
 
       <div style={{ display: 'flex', gap: 8 }}>
-        <Button variant="primary" onClick={() => download()}>
+        <Button variant="primary" onClick={onSubmit} disabled={submitting}>
+          {submitting ? '기안 문서 만드는 중…' : '전자결재 상신'}
+        </Button>
+        <Button variant="secondary" onClick={() => download()}>
           엑셀 다시 받기
         </Button>
         <Button
@@ -63,6 +88,17 @@ export function DoneScreen() {
           새 청구서 만들기
         </Button>
       </div>
+
+      {submitted && (
+        <Callout tone="success" icon="✓">
+          하이웍스 기안 창을 열었어요. 창에서 결재선을 지정하고 [기안하기]를 눌러야 상신이 완료돼요.
+        </Callout>
+      )}
+      {error && (
+        <Callout tone="danger" icon="!">
+          {error}
+        </Callout>
+      )}
     </div>
   );
 }
