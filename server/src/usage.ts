@@ -11,6 +11,47 @@ export interface UsageInfo {
   enabled: boolean;
   month?: string; // 'YYYY-MM' (UTC 기준 월)
   costUsd?: number;
+  approx?: boolean; // true 면 서버 자체 집계 추정치(이 앱 경유분만, 재시작 시 리셋)
+}
+
+// ── 서버 자체 집계(근사치) ──
+// Admin 키가 없을 때의 대안: 이 서버가 보낸 Claude 호출의 usage 를 월별로 누적해 비용을 추정한다.
+// 메모리 저장이라 서버 재시작(재배포) 시 리셋되고, 이 앱 밖에서 쓴 사용량은 포함하지 않는다.
+
+interface TokenTally { input: number; output: number; cacheWrite: number; cacheRead: number }
+const localTally: Record<string, TokenTally> = {};
+
+const monthKey = (d: Date) => `${d.getUTCFullYear()}-${String(d.getUTCMonth() + 1).padStart(2, '0')}`;
+
+export function recordLocalUsage(u?: {
+  input_tokens?: number;
+  output_tokens?: number;
+  cache_creation_input_tokens?: number | null;
+  cache_read_input_tokens?: number | null;
+}) {
+  if (!u) return;
+  const t = (localTally[monthKey(new Date())] ??= { input: 0, output: 0, cacheWrite: 0, cacheRead: 0 });
+  t.input += u.input_tokens ?? 0;
+  t.output += u.output_tokens ?? 0;
+  t.cacheWrite += u.cache_creation_input_tokens ?? 0;
+  t.cacheRead += u.cache_read_input_tokens ?? 0;
+}
+
+// Sonnet 5 요금(USD / 1M tokens). 2026-08-31 까지는 도입가 $2/$10, 이후 $3/$15.
+// 캐시 쓰기는 입력의 1.25배, 캐시 읽기는 0.1배.
+function rates(now: Date) {
+  const intro = now.getTime() < Date.UTC(2026, 8, 1);
+  const input = intro ? 2 : 3;
+  const output = intro ? 10 : 15;
+  return { input, output, cacheWrite: input * 1.25, cacheRead: input * 0.1 };
+}
+
+function localEstimate(): UsageInfo {
+  const now = new Date();
+  const t = localTally[monthKey(now)] ?? { input: 0, output: 0, cacheWrite: 0, cacheRead: 0 };
+  const r = rates(now);
+  const usd = (t.input * r.input + t.output * r.output + t.cacheWrite * r.cacheWrite + t.cacheRead * r.cacheRead) / 1e6;
+  return { enabled: true, approx: true, month: monthKey(now), costUsd: Math.round(usd * 10000) / 10000 };
 }
 
 // 권장 폴링 주기(분당 1회)보다 훨씬 여유 있게 10분 캐시
@@ -24,7 +65,7 @@ interface CostResponse {
 }
 
 export async function monthlyCost(): Promise<UsageInfo> {
-  if (!adminKey()) return { enabled: false };
+  if (!adminKey()) return localEstimate(); // Admin 키가 없으면 서버 자체 집계 추정치로
   if (cache && Date.now() - cache.at < CACHE_MS) return cache.data;
 
   const now = new Date();

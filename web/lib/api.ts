@@ -85,6 +85,7 @@ export interface UsageInfo {
   enabled: boolean;
   month?: string; // 'YYYY-MM'
   costUsd?: number;
+  approx?: boolean; // true 면 서버 자체 집계 추정치
 }
 
 /** 이번 달 Claude API 사용 금액. Admin 키 미설정·오류 시 enabled:false (표시 숨김). */

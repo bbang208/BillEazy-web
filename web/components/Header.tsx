@@ -55,13 +55,18 @@ export function Header() {
       <div style={{ display: 'flex', alignItems: 'center', gap: 12, minWidth: 160, justifyContent: 'flex-end' }}>
         {usage?.enabled && usage.costUsd != null && (
           <span
-            title={`${Number(usage.month?.split('-')[1])}월 Claude API 사용 금액 (10분 단위 갱신)`}
+            title={
+              usage.approx
+                ? `${Number(usage.month?.split('-')[1])}월 Claude 추정 사용액 — 이 앱을 거친 호출만 집계되며 서버 재시작 시 리셋돼요.`
+                : `${Number(usage.month?.split('-')[1])}월 Claude API 사용 금액 (10분 단위 갱신)`
+            }
             style={{
               fontSize: 12, fontWeight: 600, color: 'var(--text-secondary)', whiteSpace: 'nowrap',
               background: 'var(--surface-alt)', border: '1px solid var(--border)', borderRadius: 999, padding: '4px 10px',
             }}
           >
-            Claude {Number(usage.month?.split('-')[1])}월 ${usage.costUsd.toFixed(2)}
+            Claude {Number(usage.month?.split('-')[1])}월 {usage.approx ? '≈' : ''}$
+            {usage.costUsd > 0 && usage.costUsd < 1 ? usage.costUsd.toFixed(3) : usage.costUsd.toFixed(2)}
           </span>
         )}
         <span style={{ color: 'var(--text-secondary)', cursor: 'pointer', display: 'flex' }} title="유의사항"><HelpCircle size={18} /></span>

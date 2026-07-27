@@ -2,6 +2,7 @@ import Anthropic from '@anthropic-ai/sdk';
 import { RECEIPT_JSON_SCHEMA, ReceiptExtraction } from './schema.js';
 import { applyRules } from './categories.js';
 import { normalizeDateTime } from './date.js';
+import { recordLocalUsage } from './usage.js';
 
 // ANTHROPIC_API_KEY 를 환경변수에서 자동으로 읽음.
 // 529(overloaded)·429·5xx 는 SDK 가 지수 백오프로 자동 재시도한다(기본 2회 → 3회).
@@ -108,6 +109,8 @@ export async function extractReceipt(
     ],
     // output_config / thinking 필드는 SDK 버전에 따라 타입이 없을 수 있어 캐스팅.
   } as unknown as Anthropic.MessageCreateParamsNonStreaming);
+
+  recordLocalUsage(resp.usage); // 헤더의 사용 금액 추정용 (Admin 키 없을 때)
 
   const textBlock = resp.content.find((b) => b.type === 'text') as { text?: string } | undefined;
   const raw = JSON.parse(textBlock?.text ?? '{}') as ReceiptExtraction;
