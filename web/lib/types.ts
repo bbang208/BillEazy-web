@@ -106,6 +106,7 @@ export interface Row extends ReceiptExtraction {
   dest?: Place;
   routeSig?: string; // 마지막으로 거리를 계산한 origin|dest 좌표 키(중복 호출 방지)
   distanceAuto?: boolean; // 거리를 경로에서 자동으로 채웠는지
+  tollAuto?: boolean; // 톨비를 경로 응답(summary.tollFare)에서 자동으로 채웠는지
   confirmed: boolean;
   // 분류(개인경비/주유대)를 누가 정했는지. 'user' = 사용자가 수동으로 바꾼 항목.
   routedBy: 'ai' | 'user';

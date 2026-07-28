@@ -152,7 +152,7 @@ export function ReviewScreen() {
     return () => clearTimeout(t);
   }, [undoKey, dismissUndo]);
 
-  // 출발지·목적지 좌표가 모두 정해지면 네이버 지도 경로로 거리(km)를 자동 계산한다.
+  // 출발지·목적지 좌표가 모두 정해지면 네이버 지도 경로로 거리(km)·톨비를 자동 계산한다.
   const [routeBusy, setRouteBusy] = useState(false);
   const [routeErr, setRouteErr] = useState<string | null>(null);
   const sig = routeSig(sel?.origin, sel?.dest);
@@ -167,7 +167,14 @@ export function ReviewScreen() {
     routeDistance(origin, dest)
       .then((r) => {
         if (!alive) return;
-        updateRow(rowId, { distanceKm: r.distanceKm, routeSig: sig, distanceAuto: true });
+        // 경로가 바뀌면 톨비도 새 경로 기준으로 다시 채운다(거리와 동일한 규칙).
+        updateRow(rowId, {
+          distanceKm: r.distanceKm,
+          routeSig: sig,
+          distanceAuto: true,
+          toll: r.tollFare,
+          tollAuto: true,
+        });
       })
       .catch((e) => alive && setRouteErr(e instanceof Error ? e.message : '경로를 조회하지 못했어요.'))
       .finally(() => alive && setRouteBusy(false));
@@ -473,7 +480,7 @@ export function ReviewScreen() {
                     placeholder="예: 판교 고객사, 스타벅스 판교점"
                     hint={hasCoord(sel.dest) ? (sel.dest?.roadAddress || sel.dest?.address || undefined) : undefined}
                     onSelect={(p) => updateRow(sel.id, { dest: p, destination: p.name })}
-                    onText={(t) => updateRow(sel.id, { destination: t, dest: undefined, distanceAuto: false })}
+                    onText={(t) => updateRow(sel.id, { destination: t, dest: undefined, distanceAuto: false, tollAuto: false })}
                   />
 
                   <Field
@@ -500,7 +507,13 @@ export function ReviewScreen() {
                     <Field readOnly right label="금액(거리×단가)" value={won(fuelAmount(sel))} width="50%" />
                   </div>
                   <div style={{ display: 'flex', gap: 12 }}>
-                    <Field type="number" label="톨비" value={sel.toll} onChange={(v) => updateRow(sel.id, { toll: Number(v) || 0 })} width="33.33%" />
+                    <Field
+                      type="number"
+                      label={sel.tollAuto ? '톨비 · 지도 자동계산' : '톨비'}
+                      value={sel.toll}
+                      onChange={(v) => updateRow(sel.id, { toll: Number(v) || 0, tollAuto: false })}
+                      width="33.33%"
+                    />
                     <Field
                       type="number"
                       label="주차료"
@@ -510,6 +523,11 @@ export function ReviewScreen() {
                     />
                     <Field type="number" label="직접입력" value={sel.etc} onChange={(v) => updateRow(sel.id, { etc: Number(v) || 0 })} width="33.33%" />
                   </div>
+                  {sel.tollAuto && sel.toll > 0 && (
+                    <span style={{ fontSize: 12, color: 'var(--text-tertiary)', display: 'flex', alignItems: 'center', gap: 4 }}>
+                      <MapPin size={12} /> 네이버 지도의 예상 통행요금이에요 · 영수증 금액과 다르면 직접 수정해 주세요
+                    </span>
+                  )}
                   <Field readOnly right label="소계" value={won(fuelSubtotal(sel))} />
                   <Callout tone="warning" icon="⚠️">
                     톨게이트·주차료 영수증은 첨부 필수예요. 자동으로 별지에 첨부돼요.
