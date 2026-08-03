@@ -1,7 +1,7 @@
 'use client';
 
 import React from 'react';
-import { CAT_COLOR, CATEGORIES, CATEGORY_DESC, Category, CONF_COLOR, CONF_LABEL, confidenceBand } from '@/lib/types';
+import { CAT_COLOR, CATEGORIES, CATEGORY_DESC, Category, CONF_COLOR, CONF_LABEL, confidenceBand, won } from '@/lib/types';
 import { AlertTriangle, Check, Info, RotateCcw, X } from './icons';
 
 type Variant = 'primary' | 'secondary' | 'ghost' | 'danger';
@@ -109,6 +109,65 @@ export function Field({
           color: readOnly ? 'var(--text-secondary)' : 'var(--text)',
           background: ai ? 'var(--primary-tint)' : readOnly ? 'var(--surface-alt)' : 'var(--surface)',
           outline: 'none', textAlign: right ? 'right' : 'left', fontWeight: right ? 600 : 400, width: '100%',
+        }}
+      />
+    </label>
+  );
+}
+
+/**
+ * 금액 입력. 화면에는 '₩12,345' 로 보여주고 입력에서 숫자만 골라 담는다.
+ * 콤마가 끼어들어 자릿수가 밀려도 커서가 끝으로 튀지 않게 제자리에 돌려놓는다.
+ */
+export function MoneyField({
+  label, value, onChange, ai, badge, width, max = 999_999_999,
+}: {
+  label?: string; value: number; onChange: (n: number) => void;
+  ai?: boolean; badge?: string; width?: number | string; max?: number;
+}) {
+  const ref = React.useRef<HTMLInputElement>(null);
+  const caret = React.useRef<number | null>(null);
+  const tag = badge ?? (ai ? 'AI 자동입력' : '');
+
+  // 다시 그린 뒤 커서 복구. 문자열 인덱스는 콤마 때문에 어긋나므로 '앞에서 몇 번째 숫자'로 센다.
+  React.useLayoutEffect(() => {
+    const pos = caret.current;
+    caret.current = null;
+    if (pos != null && ref.current && document.activeElement === ref.current) {
+      ref.current.setSelectionRange(pos, pos);
+    }
+  });
+
+  function handleChange(e: React.ChangeEvent<HTMLInputElement>) {
+    const raw = e.target.value;
+    const digitsBefore = (raw.slice(0, e.target.selectionStart ?? raw.length).match(/\d/g) ?? []).length;
+    const n = Math.min(Number(raw.replace(/\D/g, '') || 0), max);
+    const next = won(n);
+    let i = 0;
+    for (let seen = 0; i < next.length && seen < digitsBefore; i++) if (/\d/.test(next[i])) seen++;
+    caret.current = Math.max(i, 1); // '₩' 왼쪽으로는 보내지 않는다
+    onChange(n);
+  }
+
+  return (
+    <label style={{ display: 'flex', flexDirection: 'column', gap: 4, width }}>
+      {label && (
+        <span style={{ fontSize: 13, color: 'var(--text-secondary)', display: 'flex', justifyContent: 'space-between' }}>
+          {label}
+          {tag && <span style={{ color: ai ? 'var(--primary)' : 'var(--accent)', fontSize: 11, fontWeight: 600 }}>{tag}</span>}
+        </span>
+      )}
+      <input
+        ref={ref}
+        // 0 은 빈 칸으로 둔다. '₩0' 을 남겨두면 지우고 다시 칠 때 0 이 붙어 자릿수가 어긋난다.
+        value={value ? won(value) : ''}
+        placeholder={won(0)}
+        inputMode="numeric"
+        onChange={handleChange}
+        style={{
+          border: '1px solid var(--border)', borderRadius: 10, padding: '10px 12px', fontSize: 14,
+          color: 'var(--text)', background: ai ? 'var(--primary-tint)' : 'var(--surface)',
+          outline: 'none', textAlign: 'right', fontWeight: 600, width: '100%',
         }}
       />
     </label>

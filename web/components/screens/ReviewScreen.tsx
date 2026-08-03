@@ -8,7 +8,7 @@ import {
 } from '@/lib/types';
 import {
   Badge, Button, Callout, Card, CategorySelect, Checkbox, ChipButton, ConfidenceBadge,
-  Divider, Dot, Field, Segmented, TextArea, Toast,
+  Divider, Dot, Field, MoneyField, Segmented, TextArea, Toast,
 } from '@/components/primitives';
 import { AlertTriangle, ArrowLeftRight, ExternalLink, FileText, Fuel, MapPin, Plus, RotateCcw, Wallet } from '@/components/icons';
 import { formatDate, formatDateTime, normalizeDate, normalizeDateTime } from '@/lib/date';
@@ -217,6 +217,10 @@ export function ReviewScreen() {
 
   const other = otherBucket(tab);
 
+  // 인식 금액은 사용자가 고칠 수 있다. 고친 상태면 AI 인식값으로 되돌릴 수 있게 안내한다.
+  const aiAmount = sel?.aiTotal;
+  const amountEdited = aiAmount != null && !!sel && sel.total !== aiAmount;
+
   return (
     <div>
       {/* 상단 바 */}
@@ -405,7 +409,27 @@ export function ReviewScreen() {
                     <Field ai label="사업자등록번호" value={sel.biz_no} readOnly width="50%" />
                     <Field ai label="승인/카드" value={`${sel.card_type} ${sel.card_no_masked}`} readOnly width="50%" />
                   </div>
-                  <Field ai label="사용금액" value={won(sel.total)} readOnly right />
+                  <MoneyField
+                    label="사용금액"
+                    value={sel.total}
+                    ai={aiAmount != null && !amountEdited}
+                    badge={amountEdited ? '직접 수정함' : undefined}
+                    onChange={(n) => updateRow(sel.id, { total: n })}
+                  />
+                  {amountEdited ? (
+                    <span style={{ fontSize: 12, color: 'var(--text-tertiary)', display: 'flex', alignItems: 'center', gap: 8 }}>
+                      AI 인식값 {won(aiAmount)}
+                      <ChipButton onClick={() => updateRow(sel.id, { total: aiAmount })} title="AI 가 인식한 금액으로 되돌리기">
+                        <RotateCcw size={12} /> 되돌리기
+                      </ChipButton>
+                    </span>
+                  ) : (
+                    aiAmount != null && (
+                      <span style={{ fontSize: 12, color: 'var(--text-tertiary)' }}>
+                        영수증 금액과 다르면 직접 고쳐 주세요
+                      </span>
+                    )
+                  )}
 
                   <div style={{ display: 'flex', flexDirection: 'column', gap: 6 }}>
                     <span style={{ fontSize: 13, color: 'var(--text-secondary)' }}>계정과목</span>

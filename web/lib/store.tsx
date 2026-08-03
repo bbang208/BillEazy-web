@@ -329,6 +329,8 @@ export function StoreProvider({ children }: { children: React.ReactNode }) {
           status: 'done',
           errorMsg: undefined,
           category: ex.account_suggestion,
+          // 사용자가 금액을 고쳐도 인식값으로 되돌릴 수 있게 원본을 남긴다.
+          aiTotal: ex.total,
           // 주유/주차 영수증은 인식 금액을 주차료 칸에 자동 채움
           ...(ex.routing_hint === 'fuel' ? { parking: ex.total } : {}),
         },

@@ -90,6 +90,9 @@ export interface Row extends ReceiptExtraction {
   status: 'processing' | 'done' | 'error';
   errorMsg?: string;
   retryable?: boolean; // 일시적 오류라 다시 시도해볼 만한지
+  // AI 가 인식한 원래 금액. total 을 사용자가 고쳐도 되돌릴 수 있게 남겨둔다.
+  // (직접 추가한 항목처럼 인식을 거치지 않은 행은 undefined)
+  aiTotal?: number;
   // 개인경비 사용자 입력
   note: string; // 적요
   category: Category | '';
