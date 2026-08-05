@@ -1,5 +1,5 @@
 import Anthropic from '@anthropic-ai/sdk';
-import { RECEIPT_JSON_SCHEMA, ReceiptExtraction } from './schema.js';
+import { RECEIPTS_JSON_SCHEMA, ReceiptExtraction } from './schema.js';
 import { applyRules } from './categories.js';
 import { normalizeDateTime } from './date.js';
 import { recordLocalUsage } from './usage.js';
@@ -40,6 +40,10 @@ export function describeError(e: unknown): ExtractFailure {
   if (status === 413 || status === 400) {
     return { status: 400, code: 'bad_file', retryable: false, detail, message: '이 파일은 AI가 읽을 수 없어요. 용량을 줄이거나 사진으로 다시 올려주세요.' };
   }
+  // 응답이 max_tokens 로 잘린 경우: 다시 보내도 같은 결과라 재시도 대상에서 뺀다.
+  if ((e as { code?: string })?.code === 'too_many_receipts') {
+    return { status: 413, code: 'too_many_receipts', retryable: false, detail, message: '한 파일에 영수증이 너무 많아 다 읽지 못했어요. 파일을 나눠서 올려주세요.' };
+  }
   if (status >= 500 || status === 408 || !status) {
     return { status: 503, code: 'upstream', retryable: true, detail, message: '일시적인 오류로 못 읽었어요. 다시 시도해 주세요.' };
   }
@@ -61,9 +65,24 @@ export function normalizeMediaType(mt: string | undefined): InputMediaType | nul
   return (IMAGE_TYPES as string[]).includes(t) ? (t as ImageMediaType) : null;
 }
 
+// 파일 하나에서 뽑을 수 있는 최대 건수. 이상 응답으로 토큰이 폭주하는 걸 막는 상한.
+const MAX_RECEIPTS = 30;
+
 const PROMPT = `이 파일은 한국 카드매출전표(영수증)입니다. 이미지 또는 PDF(전자세금계산서·이메일 영수증 등)로 들어옵니다.
-PDF 라면 페이지에 적힌 텍스트를 그대로 읽으세요. 여러 페이지면 첫 번째 영수증 한 건만 추출합니다.
-필드를 정확히 읽어 JSON 스키마에 맞춰 답하세요.
+PDF 라면 페이지에 적힌 텍스트를 그대로 읽으세요.
+
+파일 안에 있는 **결제 건 전부**를 찾아 receipts 배열에 하나씩 담으세요.
+- 여러 쪽 PDF 면 모든 쪽을 끝까지 읽고, 쪽마다 있는 영수증을 각각 한 건으로 넣으세요.
+- 한 쪽(또는 사진 한 장)에 영수증이 여러 장 붙어 있어도 각각 한 건입니다.
+- 반대로, 영수증 한 장 안의 여러 품목(상품 줄)은 한 건입니다. 품목별로 쪼개지 마세요.
+  같은 승인번호·같은 합계로 묶이는 것은 한 건입니다.
+- 같은 결제의 사본·재출력본(카드전표 + 간이영수증 등)이 중복으로 들어 있으면 한 건만 넣으세요.
+- 배송지·안내문·약관처럼 결제 내역이 아닌 쪽은 건너뛰세요.
+- 결제 건이 하나뿐이면 원소 1개짜리 배열, 영수증이 전혀 없으면 빈 배열로 답하세요.
+- 최대 ${MAX_RECEIPTS}건까지만 넣으세요.
+
+각 건의 필드를 정확히 읽어 JSON 스키마에 맞춰 답하세요.
+- page: 그 영수증이 있던 쪽 번호(1부터). 이미지·1쪽짜리 PDF 는 1.
 - merchant: 가맹점/판매자 상호
 - biz_no: 사업자등록번호(없으면 "")
 - datetime: 거래일시. 반드시 연-월-일 순서로 YYYY-MM-DD 또는 ISO8601(YYYY-MM-DDTHH:mm:ss). 없으면 "".
@@ -79,14 +98,15 @@ PDF 라면 페이지에 적힌 텍스트를 그대로 읽으세요. 여러 페�
 - 읽을 수 없는 텍스트 필드는 "", 숫자는 0.`;
 
 /**
- * 영수증 이미지 또는 PDF(base64) → 구조화 추출 + 계정과목 룰 보정.
+ * 영수증 이미지 또는 PDF(base64) → 결제 건 목록으로 구조화 추출 + 계정과목 룰 보정.
+ * 파일 하나에 여러 건이 있으면(여러 쪽 PDF·한 장에 여러 영수증) 건마다 하나씩 돌려준다.
  * PDF 는 image 블록이 아니라 document 블록으로 보내야 한다(베타 헤더 불필요).
  * API 키는 이 서버에서만 사용된다.
  */
-export async function extractReceipt(
+export async function extractReceipts(
   base64: string,
   mediaType: InputMediaType = 'image/jpeg',
-): Promise<ReceiptExtraction> {
+): Promise<ReceiptExtraction[]> {
   const fileBlock =
     mediaType === PDF_MEDIA_TYPE
       ? { type: 'document' as const, source: { type: 'base64' as const, media_type: PDF_MEDIA_TYPE, data: base64 } }
@@ -94,12 +114,14 @@ export async function extractReceipt(
 
   const resp = await client.messages.create({
     model: MODEL,
-    max_tokens: 1024,
-    // 추출 태스크는 결정적으로: 사고 비활성 + 낮은 effort
+    // 여러 건이 나올 수 있어 넉넉히. 모자라면 JSON 이 잘려 파싱에 실패한다.
+    max_tokens: 16000,
+    // 추출 태스크는 결정적으로: 사고 비활성.
+    // effort 는 medium — 여러 쪽을 끝까지 읽고 건을 나눠야 해서 low 로는 놓치는 쪽이 생긴다.
     thinking: { type: 'disabled' },
     output_config: {
-      format: { type: 'json_schema', schema: RECEIPT_JSON_SCHEMA },
-      effort: 'low',
+      format: { type: 'json_schema', schema: RECEIPTS_JSON_SCHEMA },
+      effort: 'medium',
     },
     messages: [
       {
@@ -113,8 +135,23 @@ export async function extractReceipt(
   recordLocalUsage(resp.usage); // 헤더의 사용 금액 추정용 (Admin 키 없을 때)
 
   const textBlock = resp.content.find((b) => b.type === 'text') as { text?: string } | undefined;
-  const raw = JSON.parse(textBlock?.text ?? '{}') as ReceiptExtraction;
-  // 모델이 26.06.15 · 06/15/2026 같은 표기를 돌려줘도 내부 표준(ISO)으로 맞춘다.
-  raw.datetime = normalizeDateTime(raw.datetime);
-  return applyRules(raw);
+  let parsed: { receipts?: ReceiptExtraction[] };
+  try {
+    parsed = JSON.parse(textBlock?.text ?? '{}') as { receipts?: ReceiptExtraction[] };
+  } catch {
+    // 영수증이 너무 많아 응답이 잘린 경우. 다시 보내도 같으니 재시도가 아니라 안내로 처리한다.
+    if (resp.stop_reason === 'max_tokens') {
+      throw Object.assign(new Error('모델 응답이 max_tokens 로 잘렸습니다'), { code: 'too_many_receipts' });
+    }
+    throw new Error(`모델 응답 JSON 파싱 실패 (stop_reason=${resp.stop_reason})`);
+  }
+
+  const list = Array.isArray(parsed.receipts) ? parsed.receipts.slice(0, MAX_RECEIPTS) : [];
+  return list.map((raw) => {
+    // 모델이 26.06.15 · 06/15/2026 같은 표기를 돌려줘도 내부 표준(ISO)으로 맞춘다.
+    raw.datetime = normalizeDateTime(raw.datetime);
+    // 쪽 번호는 미리보기 렌더링에 쓰이므로 1 이상 정수로 보정한다.
+    raw.page = Math.max(1, Math.round(Number(raw.page) || 1));
+    return applyRules(raw);
+  });
 }

@@ -2,7 +2,7 @@
 
 import React, { useState } from 'react';
 import { useStore } from '@/lib/store';
-import { won, fuelAmount, fuelSubtotal, isPdfRow, Row } from '@/lib/types';
+import { won, fuelAmount, fuelSubtotal, groupByPreview, isPdfRow, Row } from '@/lib/types';
 import { Button, Callout, Segmented, CatBadge } from '@/components/primitives';
 import { Download, FileText } from '@/components/icons';
 import { formatDate, formatPeriod, todayISO } from '@/lib/date';
@@ -354,21 +354,24 @@ function FuelDoc({
 /* ---------------- 영수증 별지 ---------------- */
 
 function AttachDoc({ rows }: { rows: Row[] }) {
+  // 엑셀 별지와 같은 규칙으로 묶는다: 같은 이미지(한 쪽에 영수증 여러 건)는 한 장만 첨부.
+  const groups = groupByPreview(rows);
   return (
     <div>
       <h3 style={{ fontSize: 16, fontWeight: 700, margin: '0 0 20px', color: 'var(--text)' }}>별지 · 영수증 첨부</h3>
 
-      {rows.length === 0 ? (
+      {groups.length === 0 ? (
         <div style={{ padding: '40px 12px', textAlign: 'center', fontSize: 13, color: 'var(--text-tertiary)' }}>
           첨부할 영수증이 없습니다.
         </div>
       ) : (
         <div style={{ display: 'grid', gridTemplateColumns: 'repeat(2, 1fr)', gap: 20 }}>
-          {rows.map((r, i) => (
-            <div key={r.id} style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
-              <ReceiptBox r={r} height={220} />
+          {groups.map((g, i) => (
+            <div key={g.key} style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
+              <ReceiptBox r={g.rows[0]} height={220} />
               <div style={{ fontSize: 12, color: 'var(--text-secondary)' }}>
-                영수증 #{i + 1} {r.merchant}
+                영수증 #{i + 1} {g.name}
+                {g.rows.length > 1 && ` (${g.rows.length}건)`}
               </div>
             </div>
           ))}

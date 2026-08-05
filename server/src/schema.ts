@@ -21,7 +21,7 @@ export const CATEGORY_DESC: Record<Category, string> = {
 
 export type RoutingHint = 'personal_expense' | 'fuel';
 
-// Claude 가 반환하는 영수증 추출 결과
+// Claude 가 반환하는 영수증 추출 결과 (결제 건 1건)
 export interface ReceiptExtraction {
   merchant: string;
   biz_no: string;
@@ -38,6 +38,9 @@ export interface ReceiptExtraction {
   account_suggestion: Category | '';
   confidence: number;
   matched_keywords: string[];
+  // 이 영수증이 있던 쪽 번호(1부터). 이미지·1쪽짜리는 1.
+  // 파일 하나에 여러 건이 있을 때 건마다 해당 쪽을 미리보기로 쓴다.
+  page: number;
 }
 
 // Claude structured output (output_config.format) 용 JSON 스키마.
@@ -70,12 +73,28 @@ export const RECEIPT_JSON_SCHEMA = {
     },
     confidence: { type: 'number', description: '계정과목 확신도 0~1' },
     matched_keywords: { type: 'array', items: { type: 'string' } },
+    page: { type: 'number', description: '이 영수증이 적힌 쪽 번호(1부터). 이미지·1쪽짜리는 1' },
   },
   required: [
     'merchant', 'biz_no', 'datetime', 'card_type', 'card_no_masked', 'approval_no',
     'items', 'supply_amount', 'vat', 'total', 'payment_method',
-    'routing_hint', 'account_suggestion', 'confidence', 'matched_keywords',
+    'routing_hint', 'account_suggestion', 'confidence', 'matched_keywords', 'page',
   ],
+} as const;
+
+// 파일 하나에 결제 건이 여러 개 있을 수 있으므로 배열로 받는다.
+// (구조화 출력 제약상 maxItems 같은 배열 제약은 못 쓰므로 프롬프트·서버에서 개수를 제한한다.)
+export const RECEIPTS_JSON_SCHEMA = {
+  type: 'object',
+  additionalProperties: false,
+  properties: {
+    receipts: {
+      type: 'array',
+      description: '파일에서 찾은 결제 건 목록. 한 건이면 원소 1개, 영수증이 없으면 빈 배열.',
+      items: RECEIPT_JSON_SCHEMA,
+    },
+  },
+  required: ['receipts'],
 } as const;
 
 // 주유대 마일리지 단가 (원/km)

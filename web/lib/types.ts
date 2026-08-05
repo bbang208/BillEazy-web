@@ -77,13 +77,17 @@ export interface ReceiptExtraction {
   account_suggestion: Category | '';
   confidence: number;
   matched_keywords: string[];
+  page: number; // 이 영수증이 있던 쪽 번호(1부터). 직접 추가한 항목은 0.
 }
 
 // 검토·수정 화면에서 다루는 편집 가능한 항목 (추출값 + 사용자 입력)
 export interface Row extends ReceiptExtraction {
   id: string;
   fileName: string;
-  previewUrl?: string; // 화면·별지에 쓸 이미지 (PDF 는 첫 페이지를 PNG 로 렌더링한 것)
+  // 원본 업로드 파일 식별자. 한 파일에서 여러 건이 나오면 그 행들이 같은 값을 갖는다.
+  // (원본 파일 재사용·첨부 중복 제거·"N건 중 몇 번째" 표시에 쓴다. 직접 추가한 항목은 없음)
+  fileKey?: string;
+  previewUrl?: string; // 화면·별지에 쓸 이미지 (PDF 는 그 건이 있는 쪽을 PNG 로 렌더링한 것)
   fileUrl?: string; // 원본 파일 blob URL (PDF 원본 열기용)
   fileType: string; // MIME
   pageCount: number; // PDF 페이지 수 (이미지는 0)
@@ -119,6 +123,41 @@ export interface Row extends ReceiptExtraction {
 
 export const bucketOf = (r: Row): Bucket => (r.routing_hint === 'fuel' ? 'fuel' : 'personal');
 export const isPdfRow = (r: Row): boolean => r.fileType === 'application/pdf';
+
+// 별지(영수증 첨부)용 묶음. 같은 이미지(같은 파일·같은 쪽)에서 나온 항목은 한 장으로 묶는다.
+export interface AttachGroup {
+  key: string;
+  previewUrl?: string; // 없으면 첨부할 이미지가 없는 항목(직접 추가·렌더 실패)
+  rows: Row[];
+  name: string; // 캡션에 쓸 거래처명(묶였으면 ' / ' 로 이어 붙임)
+}
+
+/** 항목 목록 → 별지에 붙일 이미지 단위로 묶기. 화면 미리보기와 엑셀 별지가 같은 결과를 쓰도록 한 곳에서 만든다. */
+export function groupByPreview(rows: Row[]): AttachGroup[] {
+  const groups: AttachGroup[] = [];
+  const byUrl = new Map<string, AttachGroup>();
+  for (const r of rows) {
+    if (!r.previewUrl) {
+      // 미리보기가 없는 항목은 묶지 않고 그대로 하나씩 (엑셀에는 빠지고 화면에는 자리만 보인다)
+      groups.push({ key: r.id, rows: [r], name: r.merchant || r.fileName });
+      continue;
+    }
+    const found = byUrl.get(r.previewUrl);
+    if (found) {
+      found.rows.push(r);
+    } else {
+      const g: AttachGroup = { key: r.previewUrl, previewUrl: r.previewUrl, rows: [r], name: '' };
+      byUrl.set(r.previewUrl, g);
+      groups.push(g);
+    }
+  }
+  for (const g of groups) {
+    if (g.previewUrl) {
+      g.name = [...new Set(g.rows.map((r) => r.merchant || r.fileName).filter(Boolean))].join(' / ');
+    }
+  }
+  return groups;
+}
 
 export interface Meta {
   dept: string;

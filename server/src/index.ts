@@ -1,7 +1,7 @@
 import 'dotenv/config';
 import express from 'express';
 import cors from 'cors';
-import { describeError, extractReceipt, normalizeMediaType, PDF_MEDIA_TYPE } from './anthropic.js';
+import { describeError, extractReceipts, normalizeMediaType, PDF_MEDIA_TYPE } from './anthropic.js';
 import { buildBuffer, claimFileName, type ExportKind, type PersonalClaim, type FuelClaim } from './export.js';
 import { mockExtract } from './mock.js';
 import { geocode, MapsError, ncpKey, ncpKeyId, routeDistance, searchClientId, searchClientSecret, searchPlaces } from './maps.js';
@@ -96,24 +96,32 @@ app.get('/api/route', async (req, res) => {
 // Claude API 제한: 요청 32MB. base64 는 원본의 약 4/3 이므로 24MB 원본까지 허용.
 const MAX_BASE64_BYTES = 30 * 1024 * 1024;
 
-// 영수증 이미지·PDF → 구조화 추출 + 계정과목 추천
+// 영수증 이미지·PDF → 구조화 추출 + 계정과목 추천.
+// 파일 하나에 결제 건이 여러 개면(여러 쪽 PDF 등) receipts 배열로 여러 건이 나온다.
 app.post('/api/extract', async (req, res) => {
   try {
     const { image, mediaType } = req.body as { image?: string; mediaType?: string };
     if (!image) return res.status(400).json({ error: '파일(base64) 이 필요합니다.' });
-    // 크레딧 없이 테스트: MOCK_EXTRACT=1 이면 실제 API 대신 샘플 반환
-    if (process.env.MOCK_EXTRACT === '1') {
-      return res.json(await mockExtract());
-    }
     const mt = normalizeMediaType(mediaType) ?? 'image/jpeg';
+    // 크레딧 없이 테스트: MOCK_EXTRACT=1 이면 실제 API 대신 샘플 반환(PDF 는 3건으로 쪼개 흐름 확인)
+    if (process.env.MOCK_EXTRACT === '1') {
+      return res.json({ receipts: await mockExtract(mt === PDF_MEDIA_TYPE) });
+    }
     if (image.length > MAX_BASE64_BYTES) {
       const mb = Math.round((image.length * 3) / 4 / 1024 / 1024);
       return res.status(400).json({
         error: `파일이 너무 커요(약 ${mb}MB). ${mt === PDF_MEDIA_TYPE ? 'PDF' : '이미지'} 는 24MB 이하로 올려주세요.`,
       });
     }
-    const result = await extractReceipt(image, mt);
-    res.json(result);
+    const receipts = await extractReceipts(image, mt);
+    if (!receipts.length) {
+      return res.status(422).json({
+        error: '영수증을 찾지 못했어요. 사진이 흐리거나 영수증이 아닐 수 있어요.',
+        code: 'no_receipt',
+        retryable: true,
+      });
+    }
+    res.json({ receipts });
   } catch (e) {
     // SDK 원문(예: `529 {"type":"error",...}`)은 로그에만 남기고, 화면에는 한국어 안내만 보낸다.
     const f = describeError(e);

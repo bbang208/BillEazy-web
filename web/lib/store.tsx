@@ -1,18 +1,19 @@
 'use client';
 
-import React, { createContext, useCallback, useContext, useMemo, useReducer } from 'react';
+import React, { createContext, useCallback, useContext, useMemo, useReducer, useRef } from 'react';
 import {
   Bucket, CATEGORIES, Category, Meta, ReceiptExtraction, Row, Step,
-  bucketOf, confidenceBand, fuelSubtotal, rejectReason,
+  bucketOf, confidenceBand, fuelSubtotal, groupByPreview, rejectReason,
 } from './types';
-import { ExtractError, extractReceipt, exportDoc, createApprovalDraft, fileToBase64 } from './api';
+import { ExtractError, extractReceipts, exportDoc, createApprovalDraft, fileToBase64 } from './api';
 import { buildApprovalForm, claimFileLabel } from './approval';
-import { isPdf, renderPdfFirstPage } from './pdf';
+import { isPdf, renderPdfPages } from './pdf';
 import { currentMonthPeriod, formatPeriod, normalizeDate, todayISO } from './date';
 import { DEFAULT_ORIGIN } from './maps';
 
-// 다시 시도할 때 쓰려고 원본 파일을 행 id 로 들고 있는다(상태에 넣지 않음).
-const fileById = new Map<string, File>();
+// 다시 시도·원본 첨부에 쓰려고 원본 파일을 fileKey 로 들고 있는다(상태에 넣지 않음).
+// 한 파일에서 여러 항목이 나오면 그 항목들이 같은 fileKey 를 공유한다.
+const fileByKey = new Map<string, File>();
 
 // 여러 장을 한꺼번에 던지면 API 가 붐벼서 529(overloaded)가 나기 쉽다. 동시 3건까지만.
 const CONCURRENCY = 3;
@@ -31,12 +32,13 @@ async function runPool<T>(items: T[], worker: (item: T, index: number) => Promis
 }
 
 /** 일시적 오류(529/429/5xx)는 백오프를 두고 스스로 몇 번 더 시도한다. */
-async function extractWithRetry(file: File, attempts = 2): Promise<ReceiptExtraction> {
+async function extractWithRetry(file: File, attempts = 2): Promise<ReceiptExtraction[]> {
   for (let i = 0; ; i++) {
     try {
-      return await extractReceipt(file);
+      return await extractReceipts(file);
     } catch (e) {
-      const retryable = e instanceof ExtractError ? e.retryable : true;
+      // '영수증을 못 찾음'은 다시 보내도 같을 확률이 높아 자동 재시도에서 뺀다(사용자가 직접 재시도는 가능).
+      const retryable = e instanceof ExtractError ? e.retryable && e.code !== 'no_receipt' : true;
       if (!retryable || i >= attempts - 1) throw e;
       await sleep(2000 + Math.random() * 1000); // 서버 자체 재시도 뒤 한 번 더 (약 2초 대기)
     }
@@ -60,6 +62,8 @@ type Action =
   | { type: 'step'; step: Step }
   | { type: 'addRows'; rows: Row[] }
   | { type: 'updateRow'; id: string; patch: Partial<Row> }
+  // 인식 완료: 원래 행을 첫 번째 건으로 채우고, 같은 파일에서 더 나온 건들을 바로 뒤에 끼워 넣는다.
+  | { type: 'resolveRow'; id: string; patch: Partial<Row>; extra: Row[] }
   | { type: 'removeRow'; id: string }
   | { type: 'moveRows'; ids: string[]; to: Bucket }
   | { type: 'undoMove' }
@@ -116,6 +120,22 @@ function reducer(state: State, a: Action): State {
         // 편집한 항목이 되돌리기 대상이면 스냅샷을 버린다(편집분이 사라지는 걸 막기 위함).
         undo: state.undo?.rows.some((r) => r.id === a.id) ? null : state.undo,
       };
+    case 'resolveRow': {
+      const i = state.rows.findIndex((r) => r.id === a.id);
+      if (i < 0) return state; // 인식 도중 사용자가 지웠으면 무시
+      const prev = state.rows[i];
+      // 인식을 기다리는 동안 사용자가 직접 탭을 옮겼다면 그 선택을 AI 값으로 덮지 않는다.
+      const patch = prev.routedBy === 'user'
+        ? { ...a.patch, routing_hint: prev.routing_hint, category: prev.category || a.patch.category }
+        : a.patch;
+      const base = { ...prev, ...patch };
+      return {
+        ...state,
+        // 같은 파일에서 나온 항목끼리 목록에서 붙어 있도록 원래 자리 바로 뒤에 넣는다.
+        rows: [...state.rows.slice(0, i), base, ...a.extra, ...state.rows.slice(i + 1)],
+        undo: state.undo?.rows.some((r) => r.id === a.id) ? null : state.undo,
+      };
+    }
     case 'removeRow':
       return {
         ...state,
@@ -153,16 +173,40 @@ function reducer(state: State, a: Action): State {
 const EMPTY_EXTRACTION: ReceiptExtraction = {
   merchant: '', biz_no: '', datetime: '', card_type: '', card_no_masked: '', approval_no: '',
   items: [], supply_amount: 0, vat: 0, total: 0, payment_method: 'unknown',
-  routing_hint: 'personal_expense', account_suggestion: '', confidence: 0, matched_keywords: [],
+  routing_hint: 'personal_expense', account_suggestion: '', confidence: 0, matched_keywords: [], page: 0,
 };
 
-function newRow(file: File): Row {
+// 인식 결과를 행에 반영할 때 쓰는 공통 패치 (첫 번째 건·추가로 나온 건 모두 같은 규칙)
+function extractionPatch(ex: ReceiptExtraction): Partial<Row> {
+  return {
+    ...ex,
+    status: 'done',
+    errorMsg: undefined,
+    retryable: undefined,
+    category: ex.account_suggestion,
+    // 사용자가 금액을 고쳐도 인식값으로 되돌릴 수 있게 원본을 남긴다.
+    aiTotal: ex.total,
+    // 주유/주차 영수증은 인식 금액을 주차료 칸에 자동 채움
+    ...(ex.routing_hint === 'fuel' ? { parking: ex.total } : {}),
+  };
+}
+
+// 같은 파일에서 두 번째 이후로 나온 건이 물려받으면 안 되는 사용자 입력값(재시도한 행에 남아 있을 수 있다)
+const BLANK_INPUT = {
+  note: '', category: '' as Category | '', remark: '',
+  purpose: '', destination: '', distanceKm: null, toll: 0, parking: 0, etc: 0,
+  origin: undefined, dest: undefined, routeSig: undefined, distanceAuto: false, tollAuto: false,
+  confirmed: false, routedBy: 'ai' as const, parkingAuto: false,
+} satisfies Partial<Row>;
+
+function newRow(file: File, fileKey: string): Row {
   const pdf = isPdf(file);
   const url = URL.createObjectURL(file);
   return {
     ...EMPTY_EXTRACTION,
     id: crypto.randomUUID(),
     fileName: file.name,
+    fileKey,
     // PDF 는 <img> 로 못 그리므로 첫 페이지 렌더링이 끝난 뒤에 previewUrl 을 채운다.
     previewUrl: pdf ? undefined : url,
     fileUrl: url,
@@ -245,19 +289,20 @@ async function buildClaimPayloads(rows: Row[], meta: Meta) {
 }
 
 // 영수증 미리보기(blob URL) → base64. 별지 첨부용.
+// 같은 이미지에서 나온 항목(한 쪽에 영수증이 여러 건)은 한 장으로 묶어 중복 첨부를 막는다.
 async function rowsToImages(rows: Row[]): Promise<{ name: string; base64: string; mediaType: string }[]> {
   const out: { name: string; base64: string; mediaType: string }[] = [];
-  for (const r of rows) {
-    if (!r.previewUrl) continue;
+  for (const g of groupByPreview(rows)) {
+    if (!g.previewUrl) continue;
     try {
-      const blob = await fetch(r.previewUrl).then((x) => x.blob());
+      const blob = await fetch(g.previewUrl).then((x) => x.blob());
       const base64 = await new Promise<string>((res, rej) => {
         const fr = new FileReader();
         fr.onload = () => res(String(fr.result).split(',')[1] || '');
         fr.onerror = rej;
         fr.readAsDataURL(blob);
       });
-      out.push({ name: r.merchant || r.fileName, base64, mediaType: blob.type });
+      out.push({ name: g.name, base64, mediaType: blob.type });
     } catch {
       /* 이미지 변환 실패 시 건너뜀 */
     }
@@ -279,6 +324,9 @@ export interface StoreValue {
   needsReview: number;
   isProcessing: boolean;
   movedCount: number; // 사용자가 수동으로 분류를 바꾼 영수증 수
+  // 파일 하나에서 여러 건이 나온 항목들: 행 id → { 몇 번째, 총 몇 건 }
+  splitParts: Record<string, { index: number; count: number }>;
+  splitCount: number; // 그렇게 나뉜 항목 수 (안내 문구 표시용)
   undo: { to: Bucket; count: number; rows: Row[] } | null;
   // actions
   setStep: (s: Step) => void;
@@ -302,38 +350,82 @@ const Ctx = createContext<StoreValue | null>(null);
 export function StoreProvider({ children }: { children: React.ReactNode }) {
   const [state, dispatch] = useReducer(reducer, initial);
 
-  // 한 건 처리: 형식 검증 → (PDF면) 첫 페이지 렌더 → 인식.
-  const processRow = useCallback(async (rowId: string, file: File, withPreview: boolean) => {
+  // 되돌아보지 않고 최신 행 목록을 읽기 위한 참조(재시도 시 원본 행을 찾는 용도)
+  const rowsRef = useRef(state.rows);
+  rowsRef.current = state.rows;
+
+  /**
+   * 파일 한 개 처리: 형식 검증 → (PDF면) 1쪽 렌더 → 인식 → 나온 건 수만큼 항목 만들기.
+   * 결제 건이 여러 개면 첫 번째 건은 원래 행에 채우고, 나머지는 바로 뒤에 새 항목으로 끼워 넣는다.
+   */
+  const processRow = useCallback(async (row: Row, file: File) => {
+    const rowId = row.id;
     // 지원하지 않는 형식·크기는 API 호출 전에 걸러 이유를 그대로 보여준다.
     const reject = rejectReason(file);
     if (reject) {
       dispatch({ type: 'updateRow', id: rowId, patch: { status: 'error', errorMsg: reject, retryable: false } });
       return;
     }
-    // PDF 는 첫 페이지를 PNG 로 렌더링해 미리보기·엑셀 별지에 쓴다. 실패해도 인식은 계속.
-    if (withPreview && isPdf(file)) {
+
+    const pdf = isPdf(file);
+    const pageUrls = new Map<number, string>();
+    let pageCount = row.pageCount;
+    // PDF 는 먼저 1쪽을 렌더링해 인식을 기다리는 동안에도 미리보기가 보이게 한다. 실패해도 인식은 계속.
+    if (pdf) {
       try {
-        const { dataUrl, pageCount } = await renderPdfFirstPage(file);
-        dispatch({ type: 'updateRow', id: rowId, patch: { previewUrl: dataUrl, pageCount } });
+        const first = await renderPdfPages(file, [1]);
+        pageCount = first.pageCount;
+        for (const [p, url] of Object.entries(first.pages)) pageUrls.set(Number(p), url);
+        dispatch({ type: 'updateRow', id: rowId, patch: { previewUrl: pageUrls.get(1), pageCount } });
       } catch {
         /* 렌더 실패 시 미리보기만 없음 */
       }
     }
+
     try {
-      const ex = await extractWithRetry(file);
+      const list = await extractWithRetry(file);
+      if (!list.length) throw new ExtractError('영수증을 찾지 못했어요.', true, 'no_receipt');
+
+      // 모델이 실제 쪽 수를 넘는 번호(영수증 순번을 쪽 번호로 착각 등)를 돌려줄 수 있다.
+      // 렌더러(renderPdfPages)와 같은 규칙으로 맞춰야 렌더한 이미지를 다시 찾을 수 있다.
+      const pageOf = (ex: ReceiptExtraction) => {
+        const p = Math.max(1, Math.round(ex.page) || 1);
+        return pageCount > 0 ? Math.min(pageCount, p) : p; // 쪽 수를 모르면(1쪽 렌더 실패) 그대로 둔다
+      };
+
+      // 건마다 그 건이 있는 쪽을 미리보기로 쓴다(1쪽은 위에서 이미 렌더링했으므로 건너뜀).
+      if (pdf) {
+        const want = [...new Set(list.map(pageOf))].filter((p) => !pageUrls.has(p));
+        if (want.length) {
+          try {
+            const more = await renderPdfPages(file, want);
+            pageCount = more.pageCount || pageCount;
+            for (const [p, url] of Object.entries(more.pages)) pageUrls.set(Number(p), url);
+          } catch {
+            /* 추가 쪽 렌더 실패 시 1쪽 미리보기로 대체 */
+          }
+        }
+      }
+      // PDF 는 해당 쪽 이미지, 이미지 파일은 원본 blob URL 을 그대로 공유한다.
+      const previewFor = (ex: ReceiptExtraction) =>
+        pdf ? (pageUrls.get(pageOf(ex)) ?? pageUrls.get(1) ?? row.previewUrl) : row.previewUrl;
+      // 화면 배지가 "3쪽 중 4쪽" 처럼 말이 안 되게 나오지 않도록 보정한 쪽 번호를 저장한다.
+      const pagePatch = (ex: ReceiptExtraction) => (pdf ? { page: pageOf(ex) } : {});
+
+      const [first, ...rest] = list;
       dispatch({
-        type: 'updateRow',
+        type: 'resolveRow',
         id: rowId,
-        patch: {
-          ...ex,
-          status: 'done',
-          errorMsg: undefined,
-          category: ex.account_suggestion,
-          // 사용자가 금액을 고쳐도 인식값으로 되돌릴 수 있게 원본을 남긴다.
-          aiTotal: ex.total,
-          // 주유/주차 영수증은 인식 금액을 주차료 칸에 자동 채움
-          ...(ex.routing_hint === 'fuel' ? { parking: ex.total } : {}),
-        },
+        patch: { ...extractionPatch(first), ...pagePatch(first), pageCount, previewUrl: previewFor(first) },
+        extra: rest.map((ex) => ({
+          ...row, // 파일 정보(fileKey·fileUrl·fileType·fileName)를 그대로 물려받는다
+          ...BLANK_INPUT,
+          ...extractionPatch(ex),
+          ...pagePatch(ex),
+          id: crypto.randomUUID(),
+          pageCount,
+          previewUrl: previewFor(ex),
+        })),
       });
     } catch (e) {
       dispatch({
@@ -352,19 +444,20 @@ export function StoreProvider({ children }: { children: React.ReactNode }) {
     const files = input ? Array.from(input) : [];
     if (!files.length) return;
     dispatch({ type: 'step', step: 'processing' });
-    const pending = files.map(newRow);
-    pending.forEach((row, i) => fileById.set(row.id, files[i]));
+    const pending = files.map((f) => newRow(f, crypto.randomUUID()));
+    pending.forEach((row, i) => fileByKey.set(row.fileKey!, files[i]));
     dispatch({ type: 'addRows', rows: pending });
-    await runPool(pending, (row, i) => processRow(row.id, files[i], true));
+    await runPool(pending, (row, i) => processRow(row, files[i]));
     dispatch({ type: 'step', step: 'review' });
   }, [processRow]);
 
   // 실패한 파일 다시 시도 (원본 파일을 그대로 재사용)
   const retryRow = useCallback(async (id: string) => {
-    const file = fileById.get(id);
-    if (!file) return;
+    const row = rowsRef.current.find((r) => r.id === id);
+    const file = row?.fileKey ? fileByKey.get(row.fileKey) : undefined;
+    if (!row || !file) return;
     dispatch({ type: 'updateRow', id, patch: { status: 'processing', errorMsg: undefined } });
-    await processRow(id, file, true);
+    await processRow({ ...row, status: 'processing' }, file);
   }, [processRow]);
 
   const updateRow = useCallback((id: string, patch: Partial<Row>) => dispatch({ type: 'updateRow', id, patch }), []);
@@ -400,7 +493,26 @@ export function StoreProvider({ children }: { children: React.ReactNode }) {
       fuel.filter((r) => r.status === 'done' && (!r.purpose.trim() || !r.destination.trim() || !r.distanceKm)).length;
     const isProcessing = rows.some((r) => r.status === 'processing');
     const movedCount = rows.filter((r) => r.routedBy === 'user' && !!r.fileName).length;
-    return { personal, fuel, failed, subtotal, fuelTotal, categoryTotals, needsReview, isProcessing, movedCount };
+    // 한 파일에서 여러 건이 나온 경우 "N건 중 몇 번째"를 표시하기 위한 색인
+    const splitParts: Record<string, { index: number; count: number }> = {};
+    const byFile = new Map<string, Row[]>();
+    for (const r of rows) {
+      if (!r.fileKey) continue;
+      const list = byFile.get(r.fileKey);
+      if (list) list.push(r);
+      else byFile.set(r.fileKey, [r]);
+    }
+    for (const list of byFile.values()) {
+      if (list.length < 2) continue;
+      list.forEach((r, i) => {
+        splitParts[r.id] = { index: i + 1, count: list.length };
+      });
+    }
+    const splitCount = Object.keys(splitParts).length;
+    return {
+      personal, fuel, failed, subtotal, fuelTotal, categoryTotals,
+      needsReview, isProcessing, movedCount, splitParts, splitCount,
+    };
   }, [state.rows]);
 
   const download = useCallback(async () => {
@@ -414,10 +526,14 @@ export function StoreProvider({ children }: { children: React.ReactNode }) {
     const { claims, personalRows, fuelRows } = await buildClaimPayloads(state.rows, state.meta);
     if (!claims.length) throw new Error('상신할 청구 내역이 없어요.');
     // 영수증 원본 파일(이미지·PDF)도 문서에 함께 첨부한다.
+    // 한 파일에서 여러 항목이 나왔어도 원본은 한 번만 붙인다.
     const attachments: { file_name: string; file: string }[] = [];
+    const attached = new Set<string>();
     for (const r of [...personalRows, ...fuelRows]) {
-      const f = fileById.get(r.id);
+      if (!r.fileKey || attached.has(r.fileKey)) continue;
+      const f = fileByKey.get(r.fileKey);
       if (!f) continue;
+      attached.add(r.fileKey);
       const { base64 } = await fileToBase64(f);
       attachments.push({ file_name: f.name, file: base64 });
     }

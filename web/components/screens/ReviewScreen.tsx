@@ -18,6 +18,9 @@ import { DEFAULT_ORIGIN, hasCoord, routeSig } from '@/lib/maps';
 import { routeDistance } from '@/lib/api';
 import type { Place } from '@/lib/types';
 
+// 파일 하나에서 여러 건이 나온 항목의 "N건 중 몇 번째"
+type SplitPart = { index: number; count: number };
+
 function Thumb({ r, size }: { r: Row; size: number }) {
   return (
     <div
@@ -35,9 +38,10 @@ function Thumb({ r, size }: { r: Row; size: number }) {
   );
 }
 
-/** 상세 화면의 큰 미리보기. PDF 는 첫 페이지 렌더링 이미지를 쓰고, 원본을 열 수 있게 해준다. */
-function Preview({ r, width, height }: { r: Row; width: number; height: number }) {
+/** 상세 화면의 큰 미리보기. PDF 는 그 건이 있는 쪽 렌더링 이미지를 쓰고, 원본을 열 수 있게 해준다. */
+function Preview({ r, width, height, part }: { r: Row; width: number; height: number; part?: SplitPart }) {
   const pdf = isPdfRow(r);
+  const page = r.page || 1;
   return (
     <div style={{ width, flexShrink: 0, display: 'flex', flexDirection: 'column', gap: 8 }}>
       <div
@@ -63,7 +67,7 @@ function Preview({ r, width, height }: { r: Row; width: number; height: number }
         <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 8, flexWrap: 'wrap' }}>
           <Badge color="#7048E8">
             <span style={{ display: 'inline-flex', alignItems: 'center', gap: 4 }}>
-              <FileText size={11} /> PDF{r.pageCount > 1 ? ` · ${r.pageCount}쪽` : ''}
+              <FileText size={11} /> PDF{r.pageCount > 1 ? ` · ${r.pageCount}쪽 중 ${page}쪽` : ''}
             </span>
           </Badge>
           {r.fileUrl && (
@@ -78,10 +82,10 @@ function Preview({ r, width, height }: { r: Row; width: number; height: number }
           )}
         </div>
       )}
-      {pdf && r.pageCount > 1 && (
+      {part && (
         <Callout tone="info">
-          {r.pageCount}쪽짜리 PDF예요. 첫 번째 영수증 한 건만 인식했고, 별지에도 1쪽만 첨부돼요.
-          여러 건이면 나눠서 올려주세요.
+          이 파일에서 영수증 {part.count}건을 찾아 항목을 나눴어요. 지금 보는 건 {part.index}번째예요.
+          잘못 나뉘었으면 항목을 지우거나 금액을 고쳐 주세요.
         </Callout>
       )}
     </div>
@@ -130,6 +134,7 @@ function BucketSwitch({ row, onMove }: { row: Row; onMove: (to: Bucket) => void 
 export function ReviewScreen() {
   const {
     personal, fuel, failed, subtotal, fuelTotal, categoryTotals, needsReview, movedCount, undo,
+    splitParts, splitCount,
     meta, setMeta, updateRow, removeRow, retryRow, moveRow, moveRows, undoMove, dismissUndo,
     addFiles, addFuelEntry, setStep,
   } = useStore();
@@ -239,6 +244,13 @@ export function ReviewScreen() {
           </span>
         </div>
         <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+          {splitCount > 0 && (
+            <Badge color="#7048E8">
+              <span style={{ display: 'inline-flex', alignItems: 'center', gap: 4 }}>
+                <FileText size={12} /> 한 파일에서 나눈 항목 {splitCount}건
+              </span>
+            </Badge>
+          )}
           {movedCount > 0 && (
             <Badge color="var(--accent)">
               <span style={{ display: 'inline-flex', alignItems: 'center', gap: 4 }}>
@@ -339,6 +351,12 @@ export function ReviewScreen() {
                               <span style={{ display: 'inline-flex', alignItems: 'center', gap: 3 }}><FileText size={10} /> PDF</span>
                             </Badge>
                           )}
+                          {splitParts[r.id] && (
+                            // 한 파일에서 나뉜 항목 — 몇 번째 건인지 표시
+                            <Badge color="#7048E8">
+                              {splitParts[r.id].count}건 중 {splitParts[r.id].index}
+                            </Badge>
+                          )}
                           {r.routedBy === 'user' && r.fileName ? (
                             <Badge color="var(--accent)">수동</Badge>
                           ) : (
@@ -391,8 +409,8 @@ export function ReviewScreen() {
               <BucketSwitch row={sel} onMove={(to) => move(sel.id, to)} />
               <Divider />
               <div style={{ display: 'flex', gap: 20 }}>
-                {/* 영수증 미리보기 (이미지 / PDF 첫 페이지) */}
-                <Preview r={sel} width={320} height={460} />
+                {/* 영수증 미리보기 (이미지 / PDF 는 그 건이 있는 쪽) */}
+                <Preview r={sel} width={320} height={460} part={splitParts[sel.id]} />
                 {/* 폼 우측 */}
                 <div style={{ flex: 1, minWidth: 0, display: 'flex', flexDirection: 'column', gap: 12 }}>
                   {/* AI 가 인식하지 못했으면 달력·타이핑으로 직접 입력한다 */}
@@ -468,7 +486,7 @@ export function ReviewScreen() {
               <Divider />
               <div style={{ display: 'flex', gap: 20 }}>
                 {/* 영수증에서 옮겨온 항목이면 미리보기도 같이 보여준다 */}
-                {sel.fileName && <Preview r={sel} width={280} height={400} />}
+                {sel.fileName && <Preview r={sel} width={280} height={400} part={splitParts[sel.id]} />}
                 <div style={{ flex: 1, minWidth: 0, display: 'flex', flexDirection: 'column', gap: 12 }}>
                   {sel.parkingAuto && (
                     <Callout tone="info">

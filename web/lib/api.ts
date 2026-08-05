@@ -33,7 +33,11 @@ export class ExtractError extends Error {
   }
 }
 
-export async function extractReceipt(file: File): Promise<ReceiptExtraction> {
+/**
+ * 파일 하나 → 그 안에 있는 결제 건 목록.
+ * PDF 한 장에 영수증이 여러 건이면 여러 개가 돌아온다(항목도 그만큼 나뉜다).
+ */
+export async function extractReceipts(file: File): Promise<ReceiptExtraction[]> {
   const { base64, mediaType } = await fileToBase64(file);
   const r = await fetch(`${BASE}/api/extract`, {
     method: 'POST',
@@ -44,7 +48,10 @@ export async function extractReceipt(file: File): Promise<ReceiptExtraction> {
     const body = (await r.json().catch(() => ({}))) as { error?: string; code?: string; retryable?: boolean };
     throw new ExtractError(body.error ?? '인식에 실패했어요. 다시 시도해 주세요.', body.retryable ?? r.status >= 500, body.code);
   }
-  return r.json();
+  const body = (await r.json()) as { receipts?: ReceiptExtraction[] } & Partial<ReceiptExtraction>;
+  if (Array.isArray(body.receipts)) return body.receipts;
+  // 구버전 서버(단건 객체)도 받아준다.
+  return typeof body.merchant === 'string' ? [body as ReceiptExtraction] : [];
 }
 
 // 서버가 Content-Disposition 으로 내려준 파일명(뉴로랩 {작성자} … YY MM DD.xlsx)을 그대로 쓴다.

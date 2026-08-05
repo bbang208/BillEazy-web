@@ -7,11 +7,14 @@ import { Button, Card } from '@/components/primitives';
 import { AlertTriangle, Check, FileText, RotateCcw } from '@/components/icons';
 
 export function ProcessingScreen() {
-  const { rows, setStep, reset, retryRow } = useStore();
-  const total = rows.length;
-  const done = rows.filter((r) => r.status === 'done').length;
+  const { rows, splitParts, splitCount, setStep, reset, retryRow } = useStore();
+  // 진행률은 '파일' 기준으로 센다. 한 파일에서 여러 건이 나오면 항목 수가 늘어나기 때문.
+  const keyOf = (r: Row) => r.fileKey ?? r.id;
+  const files = [...new Set(rows.map(keyOf))];
+  const total = files.length;
+  const done = files.filter((k) => rows.some((r) => keyOf(r) === k && r.status === 'done')).length;
   // 실패도 '처리 끝'이므로 진행률에 포함(막대가 멈춘 것처럼 보이지 않게)
-  const settled = rows.filter((r) => r.status !== 'processing').length;
+  const settled = files.filter((k) => rows.every((r) => keyOf(r) !== k || r.status !== 'processing')).length;
   const pct = total ? (settled / total) * 100 : 0;
 
   return (
@@ -35,6 +38,11 @@ export function ProcessingScreen() {
         <div style={{ height: 8, borderRadius: 999, background: 'var(--surface-alt)', overflow: 'hidden' }}>
           <div style={{ width: pct + '%', height: 8, borderRadius: 999, background: 'var(--primary)', transition: 'width .3s' }} />
         </div>
+        {splitCount > 0 && (
+          <span style={{ fontSize: 13, color: 'var(--text-secondary)' }}>
+            한 파일에 영수증이 여러 건 있어서 {splitCount}건으로 나눴어요
+          </span>
+        )}
       </div>
 
       {/* 파일 카드 그리드 */}
@@ -45,7 +53,7 @@ export function ProcessingScreen() {
       ) : (
         <div style={{ display: 'grid', gridTemplateColumns: 'repeat(4, 1fr)', gap: 16 }}>
           {rows.map((r) => (
-            <FileCard key={r.id} r={r} onRetry={() => void retryRow(r.id)} />
+            <FileCard key={r.id} r={r} part={splitParts[r.id]} onRetry={() => void retryRow(r.id)} />
           ))}
         </div>
       )}
@@ -84,7 +92,7 @@ function Thumb({ r }: { r: Row }) {
   );
 }
 
-function FileCard({ r, onRetry }: { r: Row; onRetry: () => void }) {
+function FileCard({ r, part, onRetry }: { r: Row; part?: { index: number; count: number }; onRetry: () => void }) {
   if (r.status === 'error') {
     return (
       <Card style={{ background: 'var(--danger-bg)', display: 'flex', flexDirection: 'column', gap: 8 }}>
@@ -116,6 +124,12 @@ function FileCard({ r, onRetry }: { r: Row; onRetry: () => void }) {
             </span>
           </div>
           <div style={{ fontSize: 14, color: 'var(--text)', fontWeight: 600 }}>{won(r.total)}</div>
+          {part && (
+            // 한 파일에서 나뉜 항목이면 몇 번째 건인지 알려준다
+            <div style={{ fontSize: 12, color: 'var(--text-tertiary)' }}>
+              {r.fileName} · {part.count}건 중 {part.index}번째
+            </div>
+          )}
         </div>
       </Card>
     );
